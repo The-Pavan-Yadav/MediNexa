@@ -6,7 +6,6 @@ import {
   FileText, 
   Calendar, 
   Pill, 
-  FileCheck, 
   CreditCard, 
   BarChart3, 
   Settings, 
@@ -16,6 +15,12 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import AdminHomeTab from './tabs/admin/AdminHomeTab';
+import AdminPatientsTab from './tabs/admin/AdminPatientsTab';
+import AdminDoctorsTab from './tabs/admin/AdminDoctorsTab';
+import AdminCasesTab from './tabs/admin/AdminCasesTab';
+import AdminAppointmentsTab from './tabs/admin/AdminAppointmentsTab';
+import AdminMedicinesTab from './tabs/admin/AdminMedicinesTab';
+import AdminBillingTab from './tabs/admin/AdminBillingTab';
 import { auth, db } from './firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
@@ -93,7 +98,6 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
           <NavItem icon={Pill} label="Medicines" active={activeTab === 'Medicines'} onClick={() => setActiveTab('Medicines')} />
           
           <SectionHeading>Operations</SectionHeading>
-          <NavItem icon={FileCheck} label="Verify Documents" active={activeTab === 'Verify Documents'} onClick={() => setActiveTab('Verify Documents')} />
           <NavItem icon={CreditCard} label="Billing" active={activeTab === 'Billing'} onClick={() => setActiveTab('Billing')} />
           <NavItem icon={BarChart3} label="Reports" active={activeTab === 'Reports'} onClick={() => setActiveTab('Reports')} />
           
@@ -142,8 +146,14 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
         {/* Main View Area */}
         <main className="flex-1 overflow-y-auto p-8 custom-scrollbar">
           {activeTab === 'Dashboard' && <AdminHomeTab adminData={adminData} />}
+          {activeTab === 'Patients' && <AdminPatientsTab adminData={adminData} />}
+          {activeTab === 'Doctors' && <AdminDoctorsTab adminData={adminData} />}
+          {activeTab === 'Cases' && <AdminCasesTab adminData={adminData} />}
+          {activeTab === 'Appointments' && <AdminAppointmentsTab adminData={adminData} />}
+          {activeTab === 'Medicines' && <AdminMedicinesTab adminData={adminData} />}
+          {activeTab === 'Billing' && <AdminBillingTab adminData={adminData} />}
           
-          {activeTab !== 'Dashboard' && (
+          {activeTab !== 'Dashboard' && activeTab !== 'Patients' && activeTab !== 'Doctors' && activeTab !== 'Cases' && activeTab !== 'Appointments' && activeTab !== 'Medicines' && activeTab !== 'Billing' && (
             <div className="flex flex-col items-center justify-center h-full text-center p-8 animate-in fade-in duration-200 opacity-70">
               <ShieldCheck className="w-12 h-12 text-[#CBD5E1] mb-4" strokeWidth={1} />
               <h2 className="text-[20px] font-semibold text-[#172B3A] mb-2">{activeTab} Administration</h2>
