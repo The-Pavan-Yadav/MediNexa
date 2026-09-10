@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { CreditCard, Download, FileText, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
 
@@ -16,10 +16,10 @@ export default function BillingTab({ patientData }: { patientData?: any }) {
   const fetchBilling = async () => {
     setLoading(true);
     try {
-      const q = query(collection(db, 'billing'), where('patientId', '==', patientData.mhdId));
+      const q = query(collection(db, 'billing'), where('patientId', '==', auth.currentUser?.uid));
       const snap = await getDocs(q);
       const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      data.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      data.sort((a:any, b:any) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setInvoices(data);
     } catch (e) {
       console.error(e);
@@ -154,7 +154,7 @@ export default function BillingTab({ patientData }: { patientData?: any }) {
               {filteredInvoices.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-5 py-12 text-center">
-                    <Receipt className="w-8 h-8 text-[#CBD5E1] mx-auto mb-3" />
+                    <FileText className="w-8 h-8 text-[#CBD5E1] mx-auto mb-3" />
                     <p className="text-[14px] font-medium text-[#172B3A]">No invoices found</p>
                     <p className="text-[13px] text-[#52606D] mt-1">There are no {filter.toLowerCase()} bills at this time.</p>
                   </td>

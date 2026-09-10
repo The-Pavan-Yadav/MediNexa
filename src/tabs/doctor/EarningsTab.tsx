@@ -34,7 +34,7 @@ interface PaymentType {
   date: string;
 }
 
-export default function EarningsTab({ doctorData }: { doctorData: any }) {
+export default function EarningsTab({ doctorData, setActiveTab }: { doctorData: any, setActiveTab?: any }) {
   const [payments, setPayments] = useState<PaymentType[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -57,36 +57,7 @@ export default function EarningsTab({ doctorData }: { doctorData: any }) {
           fetched.push({ id: docSnap.id, ...docSnap.data() } as PaymentType);
         });
 
-        // Seed mock data if empty for demonstration
-        if (fetched.length === 0) {
-          const mockPayments: Omit<PaymentType, 'id'>[] = [
-            {
-              doctorId: auth.currentUser.uid, patientId: 'mock-1', patientMhdId: 'P-045', patientName: 'James Wilson',
-              service: 'General Consultation', amount: 150.00, status: 'Paid', date: new Date().toISOString().split('T')[0]
-            },
-            {
-              doctorId: auth.currentUser.uid, patientId: 'mock-2', patientMhdId: 'P-084', patientName: 'Sarah Connor',
-              service: 'Follow-up Visit', amount: 75.00, status: 'Pending', date: new Date().toISOString().split('T')[0]
-            },
-            {
-              doctorId: auth.currentUser.uid, patientId: 'mock-3', patientMhdId: 'P-091', patientName: 'Michael Chang',
-              service: 'Lab Results Review', amount: 100.00, status: 'Paid', date: new Date(Date.now() - 86400000).toISOString().split('T')[0]
-            },
-            {
-              doctorId: auth.currentUser.uid, patientId: 'mock-4', patientMhdId: 'P-102', patientName: 'Emily Rose',
-              service: 'Initial Consultation', amount: 200.00, status: 'Paid', date: new Date(Date.now() - 172800000).toISOString().split('T')[0]
-            },
-            {
-              doctorId: auth.currentUser.uid, patientId: 'mock-5', patientMhdId: 'P-022', patientName: 'Linda Chen',
-              service: 'Specialist Referral', amount: 150.00, status: 'Pending', date: new Date(Date.now() - 259200000).toISOString().split('T')[0]
-            }
-          ];
-          
-          for (const mp of mockPayments) {
-            const docRef = await addDoc(collection(db, 'payments'), { ...mp, timestamp: serverTimestamp() });
-            fetched.push({ id: docRef.id, ...mp } as PaymentType);
-          }
-        }
+        
         
         // Sort descending by date
         fetched.sort((a, b) => b.date.localeCompare(a.date));

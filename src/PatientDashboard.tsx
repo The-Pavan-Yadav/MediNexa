@@ -396,39 +396,8 @@ export default function PatientDashboard({ onLogout }: PatientDashboardProps) {
 
             {/* 6. Care Progress */}
             <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-5">
-              <h3 className="text-[15px] font-semibold text-[#172B3A] mb-4">Care Plan Progress: Hypertension Management</h3>
-              <div className="relative pt-2 pb-6">
-                <div className="absolute left-4 top-4 bottom-0 w-px bg-[#CBD5E1]"></div>
-                <div className="space-y-6 relative">
-                  <div className="flex items-start gap-4">
-                    <div className="w-8 h-8 rounded-full bg-[#E8F2EC] flex items-center justify-center shrink-0 border border-[#276749] z-10 relative mt-0.5">
-                      <CheckCircle2 className="w-4 h-4 text-[#276749]" />
-                    </div>
-                    <div>
-                      <p className="text-[14px] font-medium text-[#172B3A]">Initial Consultation</p>
-                      <p className="text-[12px] text-[#52606D]">Completed Oct 15</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-4">
-                    <div className="w-8 h-8 rounded-full bg-[#1F5F8B] flex items-center justify-center shrink-0 border border-[#102A43] z-10 relative mt-0.5">
-                      <Activity className="w-4 h-4 text-[#FFFFFF]" />
-                    </div>
-                    <div>
-                      <p className="text-[14px] font-medium text-[#172B3A]">30-Day Medication Review</p>
-                      <p className="text-[12px] text-[#1F5F8B] font-medium">In Progress • Scheduled Nov 12</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-4">
-                    <div className="w-8 h-8 rounded-full bg-[#F4F6F8] flex items-center justify-center shrink-0 border border-[#CBD5E1] z-10 relative mt-0.5">
-                      <div className="w-2 h-2 rounded-full bg-[#CBD5E1]"></div>
-                    </div>
-                    <div>
-                      <p className="text-[14px] font-medium text-[#52606D]">Follow-up Blood Work</p>
-                      <p className="text-[12px] text-[#52606D]">Pending completion of review</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <h3 className="text-[15px] font-semibold text-[#172B3A] mb-4">Care Plan Progress</h3>
+              <p className="text-[13px] text-[#52606D]">No active care plans available.</p>
             </div>
 
             {/* 7. Results / Billing */}
@@ -437,32 +406,18 @@ export default function PatientDashboard({ onLogout }: PatientDashboardProps) {
               <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-5">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-[15px] font-semibold text-[#172B3A]">Recent Results</h3>
-                  <button className="text-[12px] font-medium text-[#1F5F8B] hover:underline">View All</button>
+                  <button onClick={() => setActiveTab('Results')} className="text-[12px] font-medium text-[#1F5F8B] hover:underline">View All</button>
                 </div>
-                <div className="flex items-center justify-between p-3 border border-[#CBD5E1] rounded-[4px]">
-                  <div>
-                    <p className="text-[14px] font-medium text-[#172B3A]">Complete Blood Count</p>
-                    <p className="text-[12px] text-[#52606D]">Ordered Oct 15 • Dr. Jenkins</p>
-                  </div>
-                  <span className="bg-[#E8F2EC] text-[#276749] text-[11px] px-2 py-0.5 rounded-[4px] font-semibold border border-[#BCE3C6]">
-                    Normal
-                  </span>
-                </div>
+                <p className="text-[13px] text-[#52606D]">No recent results.</p>
               </div>
 
               {/* Billing */}
               <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-5">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-[15px] font-semibold text-[#172B3A]">Billing Overview</h3>
-                  <button className="text-[12px] font-medium text-[#1F5F8B] hover:underline">Make Payment</button>
+                  <button onClick={() => setActiveTab('Billing')} className="text-[12px] font-medium text-[#1F5F8B] hover:underline">View Billing</button>
                 </div>
-                <div className="flex items-center justify-between p-3 border border-[#CBD5E1] rounded-[4px] bg-[#F9FAFB]">
-                  <div>
-                    <p className="text-[12px] text-[#52606D]">Outstanding Balance</p>
-                    <p className="text-[20px] font-semibold text-[#172B3A] mt-0.5">$0.00</p>
-                  </div>
-                  <CheckCircle2 className="w-6 h-6 text-[#276749]" strokeWidth={1.5} />
-                </div>
+                <p className="text-[13px] text-[#52606D]">Please check the billing tab for current balance.</p>
               </div>
             </div>
 

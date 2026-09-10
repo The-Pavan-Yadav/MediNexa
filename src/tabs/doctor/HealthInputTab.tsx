@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Search, 
   UserCircle, 
@@ -16,18 +16,33 @@ import {
 import { db, auth } from '../../firebase';
 import { collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 
+
+
 interface HealthInputTabProps {
   doctorData: any;
+  setActiveTab?: (t: string) => void;
+  globalSearchQuery?: string;
+  setGlobalSearchQuery?: (s: string) => void;
 }
-
-export default function HealthInputTab({ doctorData }: HealthInputTabProps) {
-  const [searchId, setSearchId] = useState('');
+export default function HealthInputTab({ doctorData, globalSearchQuery, setGlobalSearchQuery }: HealthInputTabProps) {
+  const [localSearchId, setLocalSearchId] = useState('');
+  const searchId = globalSearchQuery !== undefined ? globalSearchQuery : localSearchId;
+  const setSearchId = (val: string) => {
+     if (setGlobalSearchQuery) setGlobalSearchQuery(val);
+     else setLocalSearchId(val);
+  };
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [selectedPatient, setSelectedPatient] = useState<any>(null);
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{ type: 'idle' | 'success' | 'error', msg: string }>({ type: 'idle', msg: '' });
+
+  useEffect(() => {
+    if (searchId.trim() && !selectedPatient) {
+      handleSearch();
+    }
+  }, []);
 
   const [formData, setFormData] = useState({
     vitals: { bp: '', hr: '', temp: '', spo2: '', weight: '' },
@@ -37,8 +52,8 @@ export default function HealthInputTab({ doctorData }: HealthInputTabProps) {
     plan: { treatment: '', followUp: '' }
   });
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSearch = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!searchId.trim()) return;
 
     setIsSearching(true);

@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+const fs = require('fs');
+
+let code = `import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { 
@@ -223,3 +225,6 @@ export default function UpcomingTab({ patientData }: { patientData?: any }) {
     </div>
   );
 }
+`;
+fs.writeFileSync('src/tabs/UpcomingTab.tsx', code);
+console.log("Rewrote UpcomingTab");

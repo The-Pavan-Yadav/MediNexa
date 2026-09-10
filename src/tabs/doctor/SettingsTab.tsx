@@ -16,7 +16,7 @@ import {
 import { db, auth } from '../../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 
-export default function SettingsTab({ doctorData }: { doctorData: any }) {
+export default function SettingsTab({ doctorData, setActiveTab }: { doctorData: any, setActiveTab?: any }) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{ type: 'idle' | 'success' | 'error', msg: string }>({ type: 'idle', msg: '' });
 

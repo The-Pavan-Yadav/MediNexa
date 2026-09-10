@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
-import { collection, query, where, getDocs, addDoc, updateDoc, doc } from 'firebase/firestore';
+import { db, auth } from '../firebase';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, doc } from 'firebase/firestore';
 import { 
   CalendarClock, 
   MapPin, 
@@ -31,29 +31,29 @@ export default function AppointmentsTab({ patientData }: { patientData?: any }) 
   const [appointments, setAppointments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (patientData?.mhdId) fetchAppointments();
-  }, [patientData]);
+  // useEffect(() => {
+    // if (patientData?.mhdId) fetchAppointments();
+  // }, [patientData]);
 
-  const fetchAppointments = async () => {
+  
+  useEffect(() => {
+    if (!auth.currentUser) return;
     setLoading(true);
-    try {
-      const q = query(collection(db, 'appointments'), where('patientId', '==', patientData.mhdId));
-      const snap = await getDocs(q);
-      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      data.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const q = query(collection(db, 'appointments'), where('patientId', '==', auth.currentUser.uid));
+    const unsub = onSnapshot(q, (snap) => {
+      const data: any[] = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      data.sort((a:any, b:any) => new Date(a.date).getTime() - new Date(b.date).getTime());
       
-      const upcoming = data.filter(a => a.status === 'upcoming' || a.status === 'Scheduled');
+      const upcoming = data.filter((a:any) => a.status === 'upcoming' || a.status === 'Scheduled' || a.status === 'Scheduled');
       if (upcoming.length > 0) {
         upcoming[0].isNext = true;
       }
       setAppointments(data);
-    } catch (e) {
-      console.error(e);
-    } finally {
       setLoading(false);
-    }
-  };
+    });
+    return () => unsub();
+  }, []);
+  
 
   const [filter, setFilter] = useState('Upcoming');
 

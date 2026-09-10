@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+const fs = require('fs');
+
+let code = `import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { 
@@ -55,7 +57,7 @@ export default function TimelineTab({ patientData }: { patientData?: any }) {
           title: d.type || 'Appointment',
           provider: d.doctorName || 'Unknown',
           department: d.department || 'General',
-          description: `Status: ${d.status}`,
+          description: \`Status: \${d.status}\`,
           icon: CalendarClock,
           iconBg: 'bg-[#FFFFFF]',
           iconColor: 'text-[#52606D]',
@@ -163,8 +165,8 @@ export default function TimelineTab({ patientData }: { patientData?: any }) {
                 
                 {/* Node */}
                 <div className="hidden sm:flex flex-col items-center z-10 shrink-0 w-12 pt-1">
-                  <div className={`w-12 h-12 rounded-full border-[3px] ${event.borderColor} ${event.iconBg} flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform duration-200`}>
-                    <Icon className={`w-5 h-5 ${event.iconColor}`} strokeWidth={1.5} />
+                  <div className={\`w-12 h-12 rounded-full border-[3px] \${event.borderColor} \${event.iconBg} flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform duration-200\`}>
+                    <Icon className={\`w-5 h-5 \${event.iconColor}\`} strokeWidth={1.5} />
                   </div>
                 </div>
 
@@ -173,8 +175,8 @@ export default function TimelineTab({ patientData }: { patientData?: any }) {
                   <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-3">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="sm:hidden flex items-center justify-center w-6 h-6 rounded-full border ${event.borderColor} ${event.iconBg}">
-                          <Icon className={`w-3 h-3 ${event.iconColor}`} strokeWidth={2} />
+                        <span className="sm:hidden flex items-center justify-center w-6 h-6 rounded-full border \${event.borderColor} \${event.iconBg}">
+                          <Icon className={\`w-3 h-3 \${event.iconColor}\`} strokeWidth={2} />
                         </span>
                         <h3 className="text-[15px] font-bold text-[#172B3A]">{event.title}</h3>
                       </div>
@@ -209,3 +211,6 @@ export default function TimelineTab({ patientData }: { patientData?: any }) {
     </div>
   );
 }
+`;
+fs.writeFileSync('src/tabs/TimelineTab.tsx', code);
+console.log("Rewrote TimelineTab to use real data via onSnapshot");

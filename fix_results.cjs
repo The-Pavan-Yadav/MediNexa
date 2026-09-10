@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+const fs = require('fs');
+
+let code = `import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 import { 
@@ -177,7 +179,7 @@ export default function ResultsTab({ patientData }: { patientData?: any }) {
                     <CheckCircle2 className="w-3.5 h-3.5" /> Normal
                   </span>
                 )}
-                <ChevronRight className={`w-5 h-5 text-[#52606D] transition-transform duration-200 ${selectedResult === result.id ? 'rotate-90' : ''}`} strokeWidth={1.5} />
+                <ChevronRight className={\`w-5 h-5 text-[#52606D] transition-transform duration-200 \${selectedResult === result.id ? 'rotate-90' : ''}\`} strokeWidth={1.5} />
               </div>
             </div>
 
@@ -211,7 +213,7 @@ export default function ResultsTab({ patientData }: { patientData?: any }) {
                             <tr key={idx} className="hover:bg-[#F9FAFB] transition-colors">
                               <td className="px-4 py-3 text-[13px] font-medium text-[#172B3A]">{m.name}</td>
                               <td className="px-4 py-3">
-                                <span className={`text-[13px] font-bold px-2 py-0.5 rounded-[4px] ${m.isAbnormal ? 'bg-[#FEF2F2] text-[#B42318]' : 'text-[#172B3A]'}`}>
+                                <span className={\`text-[13px] font-bold px-2 py-0.5 rounded-[4px] \${m.isAbnormal ? 'bg-[#FEF2F2] text-[#B42318]' : 'text-[#172B3A]'}\`}>
                                   {m.value}
                                 </span>
                               </td>
@@ -232,3 +234,7 @@ export default function ResultsTab({ patientData }: { patientData?: any }) {
     </div>
   );
 }
+`;
+
+fs.writeFileSync('src/tabs/ResultsTab.tsx', code);
+console.log("Rewrote ResultsTab to use real data via onSnapshot");

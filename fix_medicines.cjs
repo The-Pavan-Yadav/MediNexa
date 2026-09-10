@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+const fs = require('fs');
+
+let code = `import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { Clock, Pill, CheckCircle2, XCircle, Info, Stethoscope, Calendar } from 'lucide-react';
@@ -104,11 +106,11 @@ export default function MedicinesTab({ patientData }: { patientData?: any }) {
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`px-4 py-1.5 text-[13px] font-bold rounded-[3px] transition-all duration-200 uppercase tracking-wider ${
+              className={\`px-4 py-1.5 text-[13px] font-bold rounded-[3px] transition-all duration-200 uppercase tracking-wider \${
                 filter === f 
                   ? 'bg-[#FFFFFF] text-[#102A43] shadow-sm border border-[#CBD5E1]' 
                   : 'text-[#52606D] hover:text-[#172B3A] border border-transparent'
-              }`}
+              }\`}
             >
               {f}
             </button>
@@ -129,8 +131,8 @@ export default function MedicinesTab({ patientData }: { patientData?: any }) {
             {/* Med Header */}
             <div className="bg-[#F9FAFB] border-b border-[#CBD5E1] p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-start gap-4">
-                <div className={`w-12 h-12 rounded-[4px] flex items-center justify-center shrink-0 border ${med.iconBg} ${med.iconColor.replace('text-', 'border-').replace('1F5F8B', '90CDF4').replace('276749', 'BCE3C6')}`}>
-                  <Pill className={`w-6 h-6 ${med.iconColor}`} />
+                <div className={\`w-12 h-12 rounded-[4px] flex items-center justify-center shrink-0 border \${med.iconBg} \${med.iconColor.replace('text-', 'border-').replace('1F5F8B', '90CDF4').replace('276749', 'BCE3C6')}\`}>
+                  <Pill className={\`w-6 h-6 \${med.iconColor}\`} />
                 </div>
                 <div>
                   <h3 className="text-[16px] font-bold text-[#172B3A] leading-tight mb-1">{med.name}</h3>
@@ -139,11 +141,11 @@ export default function MedicinesTab({ patientData }: { patientData?: any }) {
               </div>
               
               <div className="flex items-center gap-2 self-start sm:self-center">
-                <span className={`text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-[4px] border ${
+                <span className={\`text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-[4px] border \${
                   med.status === 'active' 
                     ? 'bg-[#E8F2EC] text-[#276749] border-[#BCE3C6]'
                     : 'bg-[#F4F6F8] text-[#52606D] border-[#CBD5E1]'
-                }`}>
+                }\`}>
                   {med.status}
                 </span>
               </div>
@@ -194,3 +196,6 @@ export default function MedicinesTab({ patientData }: { patientData?: any }) {
     </div>
   );
 }
+`;
+fs.writeFileSync('src/tabs/MedicinesTab.tsx', code);
+console.log("Rewrote MedicinesTab to use real data via onSnapshot");

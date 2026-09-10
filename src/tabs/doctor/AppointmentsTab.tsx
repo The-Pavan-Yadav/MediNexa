@@ -15,7 +15,7 @@ import {
   MoreVertical
 } from 'lucide-react';
 import { db, auth } from '../../firebase';
-import { collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { getDoc, collection, query, where, getDocs, doc, updateDoc, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
 
 interface AppointmentType {
   id: string;
@@ -33,7 +33,7 @@ interface AppointmentType {
   timestamp?: any;
 }
 
-export default function AppointmentsTab({ doctorData }: { doctorData: any }) {
+export default function AppointmentsTab({ doctorData, setActiveTab }: { doctorData: any, setActiveTab?: any }) {
   const [appointments, setAppointments] = useState<AppointmentType[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -72,43 +72,7 @@ export default function AppointmentsTab({ doctorData }: { doctorData: any }) {
         fetched.push({ id: docSnap.id, ...docSnap.data() } as AppointmentType);
       });
 
-      // Seed mock appointments if empty
-      if (fetched.length === 0) {
-        const today = new Date().toISOString().split('T')[0];
-        const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-        
-        const mockAppts: Omit<AppointmentType, 'id'>[] = [
-          {
-            patientId: 'mock-1', patientMhdId: 'P-045', patientName: 'James Wilson',
-            doctorId: auth.currentUser.uid, doctorName: doctorData?.name || 'Dr. Smith',
-            date: today, time: '09:00 AM', department: doctorData?.specialization || 'General Medicine',
-            type: 'Consultation', status: 'Completed'
-          },
-          {
-            patientId: 'mock-2', patientMhdId: 'P-084', patientName: 'Sarah Connor',
-            doctorId: auth.currentUser.uid, doctorName: doctorData?.name || 'Dr. Smith',
-            date: today, time: '11:30 AM', department: doctorData?.specialization || 'General Medicine',
-            type: 'Follow-up', status: 'Confirmed'
-          },
-          {
-            patientId: 'mock-3', patientMhdId: 'P-091', patientName: 'Michael Chang',
-            doctorId: auth.currentUser.uid, doctorName: doctorData?.name || 'Dr. Smith',
-            date: today, time: '02:00 PM', department: doctorData?.specialization || 'General Medicine',
-            type: 'Lab Review', status: 'Scheduled'
-          },
-          {
-            patientId: 'mock-4', patientMhdId: 'P-102', patientName: 'Emily Rose',
-            doctorId: auth.currentUser.uid, doctorName: doctorData?.name || 'Dr. Smith',
-            date: tomorrow, time: '10:00 AM', department: doctorData?.specialization || 'General Medicine',
-            type: 'Consultation', status: 'Scheduled'
-          }
-        ];
-        
-        for (const ma of mockAppts) {
-          const docRef = await addDoc(collection(db, 'appointments'), { ...ma, timestamp: serverTimestamp() });
-          fetched.push({ id: docRef.id, ...ma } as AppointmentType);
-        }
-      }
+      
       
       // Sort by date then time (rudimentary)
       fetched.sort((a, b) => {

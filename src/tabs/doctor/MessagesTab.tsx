@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
+import { MessageSquare, 
   Search, 
   Send, 
   Paperclip, 
@@ -34,7 +34,7 @@ interface MessageType {
   hasAttachment?: boolean;
 }
 
-export default function MessagesTab({ doctorData }: { doctorData: any }) {
+export default function MessagesTab({ doctorData, setActiveTab }: { doctorData: any, setActiveTab?: any }) {
   const [conversations, setConversations] = useState<ConversationType[]>([]);
   const [activeConversation, setActiveConversation] = useState<ConversationType | null>(null);
   const [messages, setMessages] = useState<MessageType[]>([]);
@@ -62,49 +62,7 @@ export default function MessagesTab({ doctorData }: { doctorData: any }) {
     const unsubscribe = onSnapshot(q, async (snapshot) => {
       let fetched: ConversationType[] = [];
       
-      // If no conversations exist, seed some mock ones for demonstration
-      if (snapshot.empty && loadingConv) {
-        try {
-          const docRef1 = await addDoc(collection(db, 'conversations'), {
-            patientId: 'mock-p1',
-            patientName: 'James Wilson',
-            patientMhdId: 'P-045',
-            lastMessage: 'Doctor, when should I take the second dose?',
-            lastMessageTime: serverTimestamp(),
-            unreadCount: 1,
-            participants: [auth.currentUser.uid, 'mock-p1'],
-            updatedAt: serverTimestamp()
-          });
-          
-          await addDoc(collection(db, 'messages'), {
-            conversationId: docRef1.id,
-            senderId: 'mock-p1',
-            text: 'Doctor, when should I take the second dose?',
-            timestamp: serverTimestamp()
-          });
-
-          const docRef2 = await addDoc(collection(db, 'conversations'), {
-            patientId: 'mock-p2',
-            patientName: 'Sarah Connor',
-            patientMhdId: 'P-084',
-            lastMessage: 'Clinical Update: Test results uploaded.',
-            lastMessageTime: serverTimestamp(),
-            unreadCount: 0,
-            participants: [auth.currentUser.uid, 'mock-p2'],
-            updatedAt: serverTimestamp()
-          });
-
-          await addDoc(collection(db, 'messages'), {
-            conversationId: docRef2.id,
-            senderId: auth.currentUser.uid,
-            text: 'Clinical Update: Test results uploaded.',
-            isClinicalUpdate: true,
-            timestamp: serverTimestamp()
-          });
-        } catch (e) {
-          console.error("Failed to seed conversations", e);
-        }
-      }
+      
 
       snapshot.forEach(docSnap => {
         fetched.push({ id: docSnap.id, ...docSnap.data() } as ConversationType);

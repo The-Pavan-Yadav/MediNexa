@@ -19,8 +19,8 @@ export default function AdminHomeTab({ adminData }: { adminData: any }) {
     totalDoctors: 0,
     activeCases: 0,
     todaysAppts: 0,
-    pendingVerifications: 12, // Mock for visual
-    pendingBills: 24 // Mock for visual
+    pendingVerifications: 0,
+    pendingBills: 0
   });
 
   const [loading, setLoading] = useState(true);
@@ -171,23 +171,7 @@ export default function AdminHomeTab({ adminData }: { adminData: any }) {
             <button className="text-[12px] font-medium text-[#1F5F8B] hover:underline">View Audit Log</button>
           </div>
           <div className="divide-y divide-[#CBD5E1]">
-            {[
-              { time: '10 mins ago', user: 'Dr. Smith', action: 'Updated clinical record for', target: 'P-045' },
-              { time: '25 mins ago', user: 'System', action: 'Generated automated invoice for', target: 'P-084' },
-              { time: '1 hour ago', user: 'Admin', action: 'Approved medical license for', target: 'Dr. Chen' },
-              { time: '2 hours ago', user: 'Patient Portal', action: 'New registration:', target: 'P-105' },
-              { time: '3 hours ago', user: 'Dr. Smith', action: 'Discharged case #402 for', target: 'P-012' }
-            ].map((log, i) => (
-              <div key={i} className="p-4 flex items-start gap-4 hover:bg-[#F9FAFB] transition-colors">
-                <div className="w-2 h-2 rounded-full bg-[#1F5F8B] mt-1.5 shrink-0"></div>
-                <div className="flex-1">
-                  <p className="text-[13px] text-[#172B3A]">
-                    <span className="font-semibold">{log.user}</span> {log.action} <span className="font-semibold text-[#1F5F8B]">{log.target}</span>
-                  </p>
-                  <p className="text-[11px] text-[#52606D] mt-0.5">{log.time}</p>
-                </div>
-              </div>
-            ))}
+             <div className="p-8 text-center text-[13px] text-[#52606D]">No recent system activity available.</div>
           </div>
         </div>
 

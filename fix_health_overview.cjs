@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+const fs = require('fs');
+
+let code = `import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 import { collection, query, where, getDocs, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { 
@@ -219,3 +221,7 @@ export default function HealthOverviewTab({ patientData }: { patientData?: any }
     </div>
   );
 }
+`;
+
+fs.writeFileSync('src/tabs/HealthOverviewTab.tsx', code);
+console.log("Rewrote HealthOverviewTab to use real data via onSnapshot");

@@ -408,7 +408,7 @@ export default function AdminAppointmentsTab({ adminData }: { adminData: any }) 
                 disabled={saving}
                 className="bg-[#102A43] text-white px-4 py-2 rounded-[4px] text-[13px] font-medium hover:bg-[#173F5F] transition-colors flex items-center gap-2 disabled:opacity-50"
               >
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                 {saving ? 'Saving...' : 'Save Changes'}
               </button>
             </div>

@@ -38,7 +38,7 @@ interface CaseType {
   followUpDate: string;
 }
 
-export default function CasesTab({ doctorData }: { doctorData: any }) {
+export default function CasesTab({ doctorData, setActiveTab }: { doctorData: any, setActiveTab?: any, globalSearchQuery?: any, setGlobalSearchQuery?: any }) {
   const [cases, setCases] = useState<CaseType[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -61,30 +61,7 @@ export default function CasesTab({ doctorData }: { doctorData: any }) {
         fetchedCases.push({ id: docSnap.id, ...docSnap.data() } as CaseType);
       });
 
-      // If empty, let's seed a couple of mock cases for demonstration purposes
-      if (fetchedCases.length === 0 && auth.currentUser) {
-        const mockCases: Omit<CaseType, 'id'>[] = [
-          {
-            patientId: 'mock-1', patientMhdId: 'P-045', patientName: 'James Wilson',
-            date: new Date().toISOString().split('T')[0], priority: 'High', status: 'Waiting',
-            symptoms: 'Severe chest pain, shortness of breath', diagnosis: '',
-            assignedDoctorId: auth.currentUser.uid, assignedDoctorName: doctorData?.name || 'Dr. Smith',
-            notes: '', medicines: '', treatment: '', testRequests: 'ECG, Troponin', followUpDate: ''
-          },
-          {
-            patientId: 'mock-2', patientMhdId: 'P-084', patientName: 'Sarah Connor',
-            date: new Date(Date.now() - 86400000).toISOString().split('T')[0], priority: 'Medium', status: 'Active',
-            symptoms: 'Persistent cough, low-grade fever', diagnosis: 'Upper Respiratory Infection',
-            assignedDoctorId: auth.currentUser.uid, assignedDoctorName: doctorData?.name || 'Dr. Smith',
-            notes: 'Patient reports symptoms started 4 days ago.', medicines: 'Amoxicillin 500mg', treatment: 'Rest, hydration', testRequests: '', followUpDate: ''
-          }
-        ];
-        
-        for (const mc of mockCases) {
-          const docRef = await addDoc(collection(db, 'cases'), { ...mc, lastUpdated: serverTimestamp() });
-          fetchedCases.push({ id: docRef.id, ...mc } as CaseType);
-        }
-      }
+      
 
       setCases(fetchedCases);
     } catch (err) {

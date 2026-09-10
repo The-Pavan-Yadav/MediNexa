@@ -28,10 +28,16 @@ interface PatientType {
   status?: 'Active Case' | 'Follow-up' | 'Recent' | 'Inactive';
 }
 
-export default function PatientsTab({ doctorData }: { doctorData: any }) {
+export default function PatientsTab({ doctorData, setActiveTab, globalSearchQuery, setGlobalSearchQuery }: { doctorData: any, setActiveTab?: (t: string) => void, globalSearchQuery?: string, setGlobalSearchQuery?: (s: string) => void }) {
   const [patients, setPatients] = useState<PatientType[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
+  // use globalSearchQuery if provided, else local
+  const [localSearch, setLocalSearch] = useState('');
+  const searchQuery = globalSearchQuery !== undefined ? globalSearchQuery : localSearch;
+  const handleSearchChange = (val: string) => {
+    if (setGlobalSearchQuery) setGlobalSearchQuery(val);
+    else setLocalSearch(val);
+  };
   const [filterType, setFilterType] = useState('All');
 
   const [addPatientId, setAddPatientId] = useState('');
@@ -212,7 +218,7 @@ export default function PatientsTab({ doctorData }: { doctorData: any }) {
             type="text" 
             placeholder="Search ID or Name..." 
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             className="w-full sm:w-[260px] bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] pl-9 pr-3 py-2 text-[13px] focus:outline-none focus:border-[#1F5F8B]"
           />
         </div>
@@ -305,6 +311,10 @@ export default function PatientsTab({ doctorData }: { doctorData: any }) {
                     </td>
                     <td className="px-4 py-4 align-top text-right">
                       <button 
+                        onClick={() => {
+                          if (setGlobalSearchQuery) setGlobalSearchQuery(p.mhdId);
+                          if (setActiveTab) setActiveTab('Health Input');
+                        }}
                         className="inline-flex items-center gap-1.5 text-[12px] font-medium text-[#1F5F8B] bg-[#FFFFFF] border border-[#CBD5E1] px-3 py-1.5 rounded-[4px] hover:bg-[#F4F6F8] transition-colors"
                       >
                         Open Chart <ChevronRight className="w-3.5 h-3.5" />

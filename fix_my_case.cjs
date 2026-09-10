@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+const fs = require('fs');
+
+let code = `import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { 
@@ -30,7 +32,7 @@ export default function MyCaseTab({ patientData }: { patientData?: any }) {
       // Sort by date (desc)
       data.sort((a:any, b:any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
       
-      const activeCases = data.filter((c:any) => c.status !== 'Closed');
+      const activeCases = data.filter(c => c.status !== 'Closed');
       if (activeCases.length > 0) {
         setCaseData(activeCases[0]);
       } else if (data.length > 0) {
@@ -55,11 +57,11 @@ export default function MyCaseTab({ patientData }: { patientData?: any }) {
         <div>
           <div className="flex items-center gap-3 mb-1">
             <h2 className="text-[22px] font-semibold text-[#102A43]">Primary Case File</h2>
-            <span className={`text-[11px] px-2.5 py-1 rounded-[4px] font-bold uppercase tracking-wider border ${
+            <span className={\`text-[11px] px-2.5 py-1 rounded-[4px] font-bold uppercase tracking-wider border \${
               caseData.status === 'Closed' ? 'bg-[#F4F6F8] text-[#52606D] border-[#CBD5E1]' :
               caseData.status === 'Waiting' ? 'bg-[#FEF6E7] text-[#975A16] border-[#F6E0B5]' :
               'bg-[#EBF1F6] text-[#1F5F8B] border-[#90CDF4]'
-            }`}>
+            }\`}>
               {caseData.status || 'Active'}
             </span>
             {caseData.priority === 'High' && (
@@ -180,3 +182,6 @@ export default function MyCaseTab({ patientData }: { patientData?: any }) {
     </div>
   );
 }
+`;
+fs.writeFileSync('src/tabs/MyCaseTab.tsx', code);
+console.log("Rewrote MyCaseTab via onSnapshot");

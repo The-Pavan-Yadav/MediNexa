@@ -54,9 +54,7 @@ export default function PrivacyAccessTab({ patientData }: { patientData?: any })
   const handleSave = async () => {
     if (auth.currentUser) {
       await updateDoc(doc(db, 'users', auth.currentUser.uid), {
-        emailAlerts,
-        smsAlerts,
-        dataSharing
+        preferences: toggles
       });
       alert('Preferences saved successfully!');
     }

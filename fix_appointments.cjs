@@ -1,12 +1,15 @@
 const fs = require('fs');
+let code = fs.readFileSync('src/tabs/doctor/AppointmentsTab.tsx', 'utf8');
 
-let content = fs.readFileSync('src/tabs/AppointmentsTab.tsx', 'utf8');
-
-const startIdx = content.indexOf('const APPOINTMENTS_DATA: Appointment[] = [');
-const endIdx = content.indexOf('export default function AppointmentsTab');
-
-if (startIdx !== -1) {
-  content = content.substring(0, startIdx) + content.substring(endIdx);
+// Replace mock seeding with nothing
+// The mock seeding looks like:
+//      // Seed mock appointments if empty
+//      if (fetched.length === 0) { ... }
+const seedRegex = /\/\/ Seed mock appointments if empty[\s\S]*?fetchAppointments\(\);\s+break;\s+\}\s+\}\s+\}/;
+if (seedRegex.test(code)) {
+    code = code.replace(seedRegex, '}');
+    fs.writeFileSync('src/tabs/doctor/AppointmentsTab.tsx', code);
+    console.log("Removed mock seeding from AppointmentsTab");
+} else {
+    console.log("Could not find mock seeding in AppointmentsTab");
 }
-
-fs.writeFileSync('src/tabs/AppointmentsTab.tsx', content);
