@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { db } from '../firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { 
   FileText, 
   Download, 
@@ -85,7 +87,38 @@ const RESULTS_DATA: TestResult[] = [
   }
 ];
 
-export default function ResultsTab() {
+export default function ResultsTab({ patientData }: { patientData?: any }) {
+  const [results, setResults] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (patientData?.mhdId) fetchResults();
+  }, [patientData]);
+
+  const fetchResults = async () => {
+    setLoading(true);
+    try {
+      const q = query(collection(db, 'cases'), where('patientId', '==', patientData.mhdId));
+      const snap = await getDocs(q);
+      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Map cases to "results"
+      const mappedResults = data.map(d => ({
+        id: d.id,
+        date: d.date,
+        type: d.diagnosis,
+        orderedBy: d.doctorName || 'Clinical Team',
+        status: 'Final',
+        summary: d.symptoms || 'Case closed or active.',
+        flag: d.priority === 'High' ? 'Abnormal' : 'Normal'
+      }));
+      setResults(mappedResults);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const [filter, setFilter] = useState('All');
 
   const filters = ['All', 'Blood Tests', 'Imaging', 'Other'];

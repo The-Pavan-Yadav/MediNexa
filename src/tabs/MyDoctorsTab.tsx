@@ -22,54 +22,29 @@ interface Doctor {
   nextVisit: string | null;
 }
 
-const DOCTORS_DATA: Doctor[] = [
-  {
-    id: 'd1',
-    name: 'Dr. Emily Chen, MD',
-    title: 'Board Certified Cardiologist',
-    department: 'Cardiology & Internal Medicine',
-    isPrimary: true,
-    status: 'active',
-    availability: 'Mon, Wed, Thu (9:00 AM - 4:00 PM)',
-    lastVisit: 'Oct 15, 2026',
-    nextVisit: 'Nov 12, 2026'
-  },
-  {
-    id: 'd2',
-    name: 'Dr. Samuel Jenkins, DO',
-    title: 'Attending Physician',
-    department: 'Primary Care',
-    isPrimary: false,
-    status: 'active',
-    availability: 'Mon - Fri (8:00 AM - 5:00 PM)',
-    lastVisit: 'Oct 12, 2026',
-    nextVisit: 'Nov 28, 2026'
-  },
-  {
-    id: 'd3',
-    name: 'Dr. Marcus Webb, MD',
-    title: 'Consulting Specialist',
-    department: 'Orthopedics',
-    isPrimary: false,
-    status: 'consulting',
-    availability: 'Tue, Thu (10:00 AM - 2:00 PM)',
-    lastVisit: 'Aug 05, 2026',
-    nextVisit: null
-  },
-  {
-    id: 'd4',
-    name: 'Dr. Sarah Lin, PT',
-    title: 'Physical Therapist',
-    department: 'Rehabilitation Services',
-    isPrimary: false,
-    status: 'completed',
-    availability: 'Mon - Wed (8:00 AM - 6:00 PM)',
-    lastVisit: 'Jul 20, 2026',
-    nextVisit: null
-  }
-];
+export default function MyDoctorsTab({ patientData }: { patientData?: any }) {
+  const [doctors, setDoctors] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-export default function MyDoctorsTab() {
+  useEffect(() => {
+    fetchDoctors();
+  }, [patientData]);
+
+  const fetchDoctors = async () => {
+    setLoading(true);
+    try {
+      // Just fetch all doctors for now
+      const q = query(collection(db, 'users'), where('role', '==', 'doctor'));
+      const snap = await getDocs(q);
+      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setDoctors(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const primaryDoctor = DOCTORS_DATA.find(d => d.isPrimary);
   const otherDoctors = DOCTORS_DATA.filter(d => !d.isPrimary);
 

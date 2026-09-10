@@ -28,7 +28,9 @@ const Logo = ({ className = "w-8 h-8" }) => (
   </svg>
 );
 
+
 export default function App() {
+
   const [portal, setPortal] = useState<PortalType | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
   const [loginId, setLoginId] = useState('');
@@ -39,6 +41,8 @@ export default function App() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [dob, setDob] = useState('');
+  const [gender, setGender] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [specialization, setSpecialization] = useState('');
   const [license, setLicense] = useState('');
   const [adminRole, setAdminRole] = useState('');
@@ -63,6 +67,23 @@ export default function App() {
       return;
     }
 
+    if (isRegistering) {
+      if (password.length < 6) {
+        setAuthError('Password must be at least 6 characters.');
+        return;
+      }
+      if (portal === 'patient') {
+        if (!name || !phone || !dob || !gender || !confirmPassword) {
+          setAuthError('Please fill in all required fields.');
+          return;
+        }
+        if (password !== confirmPassword) {
+          setAuthError('Passwords do not match.');
+          return;
+        }
+      }
+    }
+
     setAuthLoading(true);
 
     try {
@@ -78,63 +99,80 @@ export default function App() {
 
       if (isRegistering) {
         // Create account in Firebase Auth
+        console.log("Attempting to create user with email:", loginId);
         const userCred = await createUserWithEmailAndPassword(auth, loginId, password);
         const uid = userCred.user.uid;
+        console.log("User created successfully in Auth, UID:", uid);
 
-        // Generate unique ID securely via Transaction
-        const counterRef = doc(db, 'system', 'counters');
-        const newIdString = await runTransaction(db, async (transaction) => {
-          const counterDoc = await transaction.get(counterRef);
-          let newCount = 1;
+        try {
+          // Generate unique ID securely via Transaction
+          console.log("Attempting to generate sequential ID via Firestore transaction...");
+          const counterRef = doc(db, 'system', 'counters');
+          const newIdString = await runTransaction(db, async (transaction) => {
+            const counterDoc = await transaction.get(counterRef);
+            let newCount = 1;
 
-          if (!counterDoc.exists()) {
-            transaction.set(counterRef, { [portal]: 1 });
-          } else {
-            const data = counterDoc.data();
-            newCount = (data[portal] || 0) + 1;
-            transaction.update(counterRef, { [portal]: newCount });
+            if (!counterDoc.exists()) {
+              transaction.set(counterRef, { [portal]: 1 });
+            } else {
+              const data = counterDoc.data();
+              newCount = (data[portal] || 0) + 1;
+              transaction.update(counterRef, { [portal]: newCount });
+            }
+
+            const prefix = portal === 'patient' ? 'P' : portal === 'doctor' ? 'D' : 'A';
+            return `${prefix}-${newCount}`;
+          });
+          console.log("Sequential ID generated successfully:", newIdString);
+
+          // Prepare profile data based on role for Firestore
+          const profileData: Record<string, any> = {
+            name,
+            email: loginId,
+            role: portal,
+            mhdId: newIdString,
+            createdAt: new Date().toISOString()
+          };
+
+          if (portal === 'patient') {
+            profileData.phone = phone;
+            profileData.dob = dob;
+            profileData.gender = gender;
+          } else if (portal === 'doctor') {
+            profileData.phone = phone;
+            profileData.specialization = specialization;
+            profileData.license = license;
+          } else if (portal === 'admin') {
+            profileData.adminRole = adminRole;
           }
 
-          const prefix = portal === 'patient' ? 'P' : portal === 'doctor' ? 'D' : 'A';
-          return `${prefix}-${newCount.toString().padStart(3, '0')}`;
-        });
-
-        // Prepare profile data based on role for Firestore
-        const profileData: Record<string, any> = {
-          name,
-          email: loginId,
-          role: portal,
-          mhdId: newIdString,
-          createdAt: new Date().toISOString()
-        };
-
-        if (portal === 'patient') {
-          profileData.phone = phone;
-          profileData.dob = dob;
-        } else if (portal === 'doctor') {
-          profileData.phone = phone;
-          profileData.specialization = specialization;
-          profileData.license = license;
-        } else if (portal === 'admin') {
-          profileData.adminRole = adminRole;
+          console.log("Attempting to save user profile to Firestore users collection...");
+          await setDoc(doc(db, 'users', uid), profileData);
+          console.log("Profile saved successfully.");
+          
+          setLoggedIn(portal);
+        } catch (dbError: any) {
+          console.error("Database operation failed during registration, rolling back Auth user...", dbError);
+          // Rollback the created user to prevent orphaned Auth accounts without Firestore profiles
+          await userCred.user.delete();
+          throw dbError; // Rethrow to be caught by the outer catch block
         }
-
-        await setDoc(doc(db, 'users', uid), profileData);
-        setLoggedIn(portal);
       } else {
         // Sign in via Firebase Auth
         await signInWithEmailAndPassword(auth, loginId, password);
         setLoggedIn(portal);
       }
     } catch (error: any) {
-      console.error("Auth error:", error);
-      // Clean up Firebase error message for users
+      console.error("Auth error caught in handleAuth:", error);
       let errorMsg = error.message;
       if (error.code === 'auth/email-already-in-use') errorMsg = 'An account with this email already exists.';
-      if (error.code === 'auth/invalid-credential') errorMsg = 'Invalid email or password.';
-      if (error.code === 'auth/weak-password') errorMsg = 'Password should be at least 6 characters.';
+      else if (error.code === 'auth/invalid-credential') errorMsg = 'Invalid email or password.';
+      else if (error.code === 'auth/weak-password') errorMsg = 'Password should be at least 6 characters.';
+      else if (error.code === 'permission-denied') errorMsg = 'Database permission denied. Please check Firestore security rules.';
+      else if (error.code) errorMsg = `Firebase Error (${error.code}): ${error.message}`;
+      else errorMsg = `Error: ${error.message || 'An unknown error occurred during registration.'}`;
       
-      setAuthError(errorMsg || 'Authentication failed. Please check your credentials.');
+      setAuthError(errorMsg);
     } finally {
       setAuthLoading(false);
     }
@@ -143,9 +181,11 @@ export default function App() {
   const clearForm = () => {
     setLoginId('');
     setPassword('');
+    setConfirmPassword('');
     setName('');
     setPhone('');
     setDob('');
+    setGender('');
     setSpecialization('');
     setLicense('');
     setAdminRole('');
@@ -362,6 +402,20 @@ export default function App() {
                     {/* Patient Specific Registration Fields */}
                     {isRegistering && portal === 'patient' && (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                        <div className="sm:col-span-2">
+                          <label className="block text-[13px] font-medium text-[#172B3A] mb-1.5">Gender</label>
+                          <select
+                            required
+                            value={gender}
+                            onChange={(e) => setGender(e.target.value)}
+                            className="w-full h-[40px] border border-[#CBD5E1] rounded-[4px] px-3 text-[14px] text-[#172B3A] bg-white focus:outline-none focus:border-[#1F5F8B] focus:ring-1 focus:ring-[#1F5F8B] transition-colors"
+                          >
+                            <option value="" disabled>Select Gender</option>
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                            <option value="Other">Other</option>
+                          </select>
+                        </div>
                         <div>
                           <label className="block text-[13px] font-medium text-[#172B3A] mb-1.5">Phone Number</label>
                           <input
@@ -476,6 +530,22 @@ export default function App() {
                         placeholder="••••••••"
                       />
                     </div>
+
+                    {isRegistering && portal === 'patient' && (
+                      <div>
+                        <label className="block text-[13px] font-medium text-[#172B3A] mb-1.5">
+                          Confirm Password
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          className="w-full h-[40px] border border-[#CBD5E1] rounded-[4px] px-3 text-[14px] text-[#172B3A] focus:outline-none focus:border-[#1F5F8B] focus:ring-1 focus:ring-[#1F5F8B] transition-colors"
+                          placeholder="••••••••"
+                        />
+                      </div>
+                    )}
 
                     {!isRegistering && portal === 'patient' && (
                       <div className="flex items-center justify-between pt-1">

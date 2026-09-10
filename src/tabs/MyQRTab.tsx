@@ -4,7 +4,7 @@ import { auth, db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { QrCode, Download, Printer, Loader2, ShieldCheck, UserCircle, MapPin } from 'lucide-react';
 
-export default function MyQRTab() {
+export default function MyQRTab({ patientData }: { patientData?: any }) {
   const [userData, setUserData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 

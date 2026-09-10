@@ -11,6 +11,8 @@ import MyQRTab from './tabs/MyQRTab';
 import PrivacyAccessTab from './tabs/PrivacyAccessTab';
 import BillingTab from './tabs/BillingTab';
 import EmergencyTab from './tabs/EmergencyTab';
+import { auth, db } from './firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import {
   LayoutDashboard,
   CalendarClock,
@@ -48,6 +50,19 @@ const Logo = ({ className = "w-8 h-8" }) => (
 );
 
 export default function PatientDashboard({ onLogout }: PatientDashboardProps) {
+  const [patientData, setPatientData] = useState<any>(null);
+  
+  React.useEffect(() => {
+    const fetchUserData = async () => {
+      if (auth.currentUser) {
+        const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+        if (userDoc.exists()) {
+          setPatientData(userDoc.data());
+        }
+      }
+    };
+    fetchUserData();
+  }, []);
   const [activeTab, setActiveTab] = useState('Dashboard');
 
   const NavItem = ({ icon: Icon, label, active, onClick, danger = false }: any) => (
@@ -136,8 +151,8 @@ export default function PatientDashboard({ onLogout }: PatientDashboardProps) {
             <button className="flex items-center gap-2 hover:bg-[#F4F6F8] p-1.5 rounded-[4px] transition-colors">
               <UserCircle className="w-7 h-7 text-[#1F5F8B]" strokeWidth={1.5} />
               <div className="text-left hidden md:block">
-                <p className="text-[13px] font-semibold text-[#172B3A] leading-tight">Alex Johnson</p>
-                <p className="text-[11px] text-[#52606D]">MRN: 982-441-00</p>
+                <p className="text-[13px] font-semibold text-[#172B3A] leading-tight">{patientData?.name || "Patient"}</p>
+                <p className="text-[11px] text-[#52606D]">ID: {patientData?.mhdId || "Loading..."}</p>
               </div>
             </button>
           </div>
@@ -151,13 +166,13 @@ export default function PatientDashboard({ onLogout }: PatientDashboardProps) {
               {/* 1. Patient Welcome */}
             <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <h2 className="text-[22px] font-semibold text-[#102A43] mb-1">Good morning, Alex.</h2>
+                <h2 className="text-[22px] font-semibold text-[#102A43] mb-1">Good morning, {patientData?.name ? patientData.name.split(" ")[0] : "Patient"}.</h2>
                 <p className="text-[14px] text-[#52606D]">Here is your healthcare summary for today.</p>
               </div>
               <div className="flex gap-6 text-[13px]">
                 <div>
                   <p className="text-[#52606D] mb-0.5">Date of Birth</p>
-                  <p className="font-medium text-[#172B3A]">Oct 12, 1985</p>
+                  <p className="font-medium text-[#172B3A]">{patientData?.dob ? new Date(patientData.dob).toLocaleDateString() : "Not Set"}</p>
                 </div>
                 <div className="w-px bg-[#CBD5E1]"></div>
                 <div>
@@ -366,18 +381,18 @@ export default function PatientDashboard({ onLogout }: PatientDashboardProps) {
             </div>
           )}
 
-          {activeTab === 'Upcoming' && <UpcomingTab />}
-          {activeTab === 'Timeline' && <TimelineTab />}
-          {activeTab === 'My Case' && <MyCaseTab />}
-          {activeTab === 'Medicines' && <MedicinesTab />}
-          {activeTab === 'Results' && <ResultsTab />}
-          {activeTab === 'My Doctors' && <MyDoctorsTab />}
-          {activeTab === 'Health Overview' && <HealthOverviewTab />}
-          {activeTab === 'Appointments' && <AppointmentsTab />}
-          {activeTab === 'My QR' && <MyQRTab />}
-          {activeTab === 'Privacy & Access' && <PrivacyAccessTab />}
-          {activeTab === 'Billing' && <BillingTab />}
-          {activeTab === 'Emergency' && <EmergencyTab />}
+          {activeTab === 'Upcoming' && <UpcomingTab patientData={patientData} />}
+          {activeTab === 'Timeline' && <TimelineTab patientData={patientData} />}
+          {activeTab === 'My Case' && <MyCaseTab patientData={patientData} />}
+          {activeTab === 'Medicines' && <MedicinesTab patientData={patientData} />}
+          {activeTab === 'Results' && <ResultsTab patientData={patientData} />}
+          {activeTab === 'My Doctors' && <MyDoctorsTab patientData={patientData} />}
+          {activeTab === 'Health Overview' && <HealthOverviewTab patientData={patientData} />}
+          {activeTab === 'Appointments' && <AppointmentsTab patientData={patientData} />}
+          {activeTab === 'My QR' && <MyQRTab patientData={patientData} />}
+          {activeTab === 'Privacy & Access' && <PrivacyAccessTab patientData={patientData} />}
+          {activeTab === 'Billing' && <BillingTab patientData={patientData} />}
+          {activeTab === 'Emergency' && <EmergencyTab patientData={patientData} />}
 
           {activeTab !== 'Dashboard' && activeTab !== 'Upcoming' && activeTab !== 'Timeline' && activeTab !== 'My Case' && activeTab !== 'Medicines' && activeTab !== 'Results' && activeTab !== 'My Doctors' && activeTab !== 'Health Overview' && activeTab !== 'Appointments' && activeTab !== 'My QR' && activeTab !== 'Privacy & Access' && activeTab !== 'Billing' && activeTab !== 'Emergency' && (
             <div className="flex flex-col items-center justify-center h-full text-center p-8 animate-in fade-in duration-200">

@@ -17,7 +17,7 @@ import {
   Users
 } from 'lucide-react';
 
-export default function EmergencyTab() {
+export default function EmergencyTab({ patientData }: { patientData?: any }) {
   const [userData, setUserData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 

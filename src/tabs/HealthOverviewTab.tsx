@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { db } from '../firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { 
   Activity, 
   HeartPulse, 
@@ -12,7 +14,12 @@ import {
   ArrowRight
 } from 'lucide-react';
 
-export default function HealthOverviewTab() {
+export default function HealthOverviewTab({ patientData }: { patientData?: any }) {
+  const [healthData, setHealthData] = useState<any>(null);
+  
+  // You could fetch from a health_profiles collection here
+  // For now, we will just use patientData where possible
+
   return (
     <div className="max-w-[1000px] mx-auto space-y-6 animate-in fade-in duration-200">
       

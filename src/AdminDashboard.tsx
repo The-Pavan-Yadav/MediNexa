@@ -21,6 +21,8 @@ import AdminCasesTab from './tabs/admin/AdminCasesTab';
 import AdminAppointmentsTab from './tabs/admin/AdminAppointmentsTab';
 import AdminMedicinesTab from './tabs/admin/AdminMedicinesTab';
 import AdminBillingTab from './tabs/admin/AdminBillingTab';
+import AdminReportsTab from './tabs/admin/AdminReportsTab';
+import AdminSettingsTab from './tabs/admin/AdminSettingsTab';
 import { auth, db } from './firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
@@ -152,8 +154,10 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
           {activeTab === 'Appointments' && <AdminAppointmentsTab adminData={adminData} />}
           {activeTab === 'Medicines' && <AdminMedicinesTab adminData={adminData} />}
           {activeTab === 'Billing' && <AdminBillingTab adminData={adminData} />}
+          {activeTab === 'Reports' && <AdminReportsTab adminData={adminData} />}
+          {activeTab === 'Settings' && <AdminSettingsTab adminData={adminData} />}
           
-          {activeTab !== 'Dashboard' && activeTab !== 'Patients' && activeTab !== 'Doctors' && activeTab !== 'Cases' && activeTab !== 'Appointments' && activeTab !== 'Medicines' && activeTab !== 'Billing' && (
+          {activeTab !== 'Dashboard' && activeTab !== 'Patients' && activeTab !== 'Doctors' && activeTab !== 'Cases' && activeTab !== 'Appointments' && activeTab !== 'Medicines' && activeTab !== 'Billing' && activeTab !== 'Reports' && activeTab !== 'Settings' && (
             <div className="flex flex-col items-center justify-center h-full text-center p-8 animate-in fade-in duration-200 opacity-70">
               <ShieldCheck className="w-12 h-12 text-[#CBD5E1] mb-4" strokeWidth={1} />
               <h2 className="text-[20px] font-semibold text-[#172B3A] mb-2">{activeTab} Administration</h2>

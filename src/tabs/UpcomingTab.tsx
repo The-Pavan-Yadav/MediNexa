@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { db } from '../firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { 
   CalendarClock, 
   MapPin, 
@@ -11,7 +13,38 @@ import {
   CheckCircle2 
 } from 'lucide-react';
 
-export default function UpcomingTab() {
+export default function UpcomingTab({ patientData }: { patientData?: any }) {
+  const [appointments, setAppointments] = useState<any[]>([]);
+  const [medicines, setMedicines] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (patientData?.mhdId) {
+      fetchData();
+    }
+  }, [patientData]);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const apptQ = query(collection(db, 'appointments'), where('patientId', '==', patientData.mhdId));
+      const apptSnap = await getDocs(apptQ);
+      const apptData = apptSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      const upcomingAppts = apptData.filter(a => a.status === 'Scheduled' || a.status === 'upcoming').sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      setAppointments(upcomingAppts);
+
+      const medQ = query(collection(db, 'medicines'), where('patientId', '==', patientData.mhdId));
+      const medSnap = await getDocs(medQ);
+      const medData = medSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const activeMeds = medData.filter(m => m.status === 'Active');
+      setMedicines(activeMeds);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
   const [filter, setFilter] = useState('All');
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
@@ -47,32 +80,29 @@ export default function UpcomingTab() {
       </div>
 
       {/* Next Appointment */}
-      {showAppts && (
+      {showAppts && appointments.length > 0 && (
         <div className="bg-[#FFFFFF] border-l-4 border-[#1F5F8B] border-y border-r border-y-[#CBD5E1] border-r-[#CBD5E1] rounded-[4px] p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-[14px] font-semibold text-[#102A43] uppercase tracking-wide">Next Appointment</h3>
             <span className="bg-[#E8F2EC] text-[#276749] text-[11px] px-2 py-0.5 rounded-[4px] font-semibold border border-[#BCE3C6]">
-              Confirmed
+              {appointments[0].status}
             </span>
           </div>
           <div className="flex flex-col md:flex-row gap-6 md:items-center justify-between">
             <div className="flex items-start gap-4">
               <div className="bg-[#F4F6F8] border border-[#CBD5E1] rounded-[4px] p-3 text-center min-w-[70px]">
-                <p className="text-[11px] text-[#52606D] uppercase font-bold">Nov</p>
-                <p className="text-[20px] font-bold text-[#102A43]">12</p>
+                <p className="text-[11px] text-[#52606D] uppercase font-bold">{new Date(appointments[0].date).toLocaleString('default', { month: 'short' })}</p>
+                <p className="text-[20px] font-bold text-[#102A43]">{new Date(appointments[0].date).getDate()}</p>
               </div>
               <div>
-                <h4 className="text-[16px] font-semibold text-[#172B3A]">Cardiology Follow-up</h4>
-                <p className="text-[13px] text-[#172B3A] font-medium mt-1">Dr. Emily Chen</p>
+                <h4 className="text-[16px] font-semibold text-[#172B3A]">{appointments[0].type || 'Consultation'}</h4>
+                <p className="text-[13px] text-[#172B3A] font-medium mt-1">{appointments[0].doctorName || appointments[0].provider}</p>
                 <div className="flex flex-wrap gap-4 mt-2">
                   <span className="text-[12px] text-[#52606D] flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5"/> 10:00 AM - 10:30 AM
+                    <Clock className="w-3.5 h-3.5"/> {appointments[0].time}
                   </span>
                   <span className="text-[12px] text-[#52606D] flex items-center gap-1.5">
-                    <Stethoscope className="w-3.5 h-3.5"/> Cardiology Dept
-                  </span>
-                  <span className="text-[12px] text-[#52606D] flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5"/> Room 402, North Wing
+                    <Stethoscope className="w-3.5 h-3.5"/> {appointments[0].department || appointments[0].specialty}
                   </span>
                 </div>
               </div>

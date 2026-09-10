@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { db } from '../firebase';
+import { collection, query, where, getDocs, addDoc, updateDoc, doc } from 'firebase/firestore';
 import { 
   CalendarClock, 
   MapPin, 
@@ -25,70 +27,42 @@ interface Appointment {
   isNext?: boolean;
 }
 
-const APPOINTMENTS_DATA: Appointment[] = [
-  {
-    id: 'a1',
-    date: 'Nov 12, 2026',
-    time: '10:00 AM',
-    provider: 'Dr. Emily Chen, MD',
-    specialty: 'Cardiology',
-    location: 'North Wing, Suite 402',
-    type: '30-Day Medication Review',
-    status: 'upcoming',
-    isNext: true
-  },
-  {
-    id: 'a2',
-    date: 'Nov 28, 2026',
-    time: '2:15 PM',
-    provider: 'Dr. Samuel Jenkins, DO',
-    specialty: 'Primary Care',
-    location: 'Main Clinic, Level 1',
-    type: 'Annual Physical Follow-up',
-    status: 'upcoming',
-    isNext: false
-  },
-  {
-    id: 'a3',
-    date: 'Oct 15, 2026',
-    time: '9:00 AM',
-    provider: 'Dr. Samuel Jenkins, DO',
-    specialty: 'Primary Care',
-    location: 'Main Clinic, Level 1',
-    type: 'Annual Physical Exam',
-    status: 'completed'
-  },
-  {
-    id: 'a4',
-    date: 'Sep 02, 2026',
-    time: '11:45 AM',
-    provider: 'Dr. Emily Chen, MD',
-    specialty: 'Cardiology',
-    location: 'North Wing, Suite 402',
-    type: 'Initial Consultation',
-    status: 'completed'
-  },
-  {
-    id: 'a5',
-    date: 'Aug 20, 2026',
-    time: '3:00 PM',
-    provider: 'Lab Services',
-    specialty: 'Pathology',
-    location: 'Lab B, Level 2',
-    type: 'Blood Draw (CBC & Lipid)',
-    status: 'cancelled'
-  }
-];
+export default function AppointmentsTab({ patientData }: { patientData?: any }) {
+  const [appointments, setAppointments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-export default function AppointmentsTab() {
+  useEffect(() => {
+    if (patientData?.mhdId) fetchAppointments();
+  }, [patientData]);
+
+  const fetchAppointments = async () => {
+    setLoading(true);
+    try {
+      const q = query(collection(db, 'appointments'), where('patientId', '==', patientData.mhdId));
+      const snap = await getDocs(q);
+      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      data.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      
+      const upcoming = data.filter(a => a.status === 'upcoming' || a.status === 'Scheduled');
+      if (upcoming.length > 0) {
+        upcoming[0].isNext = true;
+      }
+      setAppointments(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const [filter, setFilter] = useState('Upcoming');
 
   const filters = ['Upcoming', 'Completed', 'Cancelled'];
 
-  const filteredAppointments = APPOINTMENTS_DATA.filter(app => {
-    if (filter === 'Upcoming' && app.status === 'upcoming') return true;
-    if (filter === 'Completed' && app.status === 'completed') return true;
-    if (filter === 'Cancelled' && app.status === 'cancelled') return true;
+  const filteredAppointments = appointments.filter(app => {
+    if (filter === 'Upcoming' && app.status === 'upcoming' || app.status === 'Scheduled') return true;
+    if (filter === 'Completed' && app.status === 'completed' || app.status === 'Completed') return true;
+    if (filter === 'Cancelled' && app.status === 'cancelled' || app.status === 'Cancelled') return true;
     return false;
   });
 

@@ -1,74 +1,26 @@
-import React, { useState } from 'react';
-import { 
-  CreditCard, 
-  FileText, 
-  Download, 
-  Clock, 
-  CheckCircle2, 
-  AlertCircle,
-  Receipt,
-  Search,
-  Filter
-} from 'lucide-react';
+export default function BillingTab({ patientData }: { patientData?: any }) {
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-type InvoiceStatus = 'paid' | 'pending' | 'overdue';
+  useEffect(() => {
+    if (patientData?.mhdId) fetchBilling();
+  }, [patientData]);
 
-interface Invoice {
-  id: string;
-  date: string;
-  description: string;
-  category: 'Consultation' | 'Laboratory' | 'Pharmacy' | 'Procedure';
-  amount: number;
-  status: InvoiceStatus;
-  dueDate?: string;
-}
+  const fetchBilling = async () => {
+    setLoading(true);
+    try {
+      const q = query(collection(db, 'billing'), where('patientId', '==', patientData.mhdId));
+      const snap = await getDocs(q);
+      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      data.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setInvoices(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-const BILLING_DATA: Invoice[] = [
-  {
-    id: 'INV-2026-0892',
-    date: 'Nov 12, 2026',
-    description: 'Cardiology Consultation - Dr. Emily Chen',
-    category: 'Consultation',
-    amount: 150.00,
-    status: 'pending',
-    dueDate: 'Dec 12, 2026'
-  },
-  {
-    id: 'INV-2026-0845',
-    date: 'Oct 15, 2026',
-    description: 'Annual Physical Exam & Blood Work',
-    category: 'Laboratory',
-    amount: 325.50,
-    status: 'paid'
-  },
-  {
-    id: 'INV-2026-0799',
-    date: 'Sep 28, 2026',
-    description: 'Pharmacy: Atorvastatin & Lisinopril (90-day)',
-    category: 'Pharmacy',
-    amount: 45.20,
-    status: 'paid'
-  },
-  {
-    id: 'INV-2026-0612',
-    date: 'Jun 10, 2026',
-    description: 'Echocardiogram Procedure',
-    category: 'Procedure',
-    amount: 850.00,
-    status: 'overdue',
-    dueDate: 'Jul 10, 2026'
-  },
-  {
-    id: 'INV-2026-0501',
-    date: 'May 05, 2026',
-    description: 'Primary Care Visit - Dr. Samuel Jenkins',
-    category: 'Consultation',
-    amount: 110.00,
-    status: 'paid'
-  }
-];
-
-export default function BillingTab() {
   const [filter, setFilter] = useState<'All' | 'Pending' | 'Paid' | 'Overdue'>('All');
 
   const filteredInvoices = BILLING_DATA.filter(inv => {

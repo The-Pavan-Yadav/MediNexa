@@ -1,110 +1,24 @@
-import React, { useState } from 'react';
-import { 
-  Pill, 
-  Clock, 
-  CheckCircle2, 
-  XCircle, 
-  Calendar,
-  Stethoscope,
-  Info
-} from 'lucide-react';
+export default function MedicinesTab({ patientData }: { patientData?: any }) {
+  const [prescriptions, setPrescriptions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-interface ScheduleItem {
-  id: string;
-  time: string;
-  medicine: string;
-  dosage: string;
-  instructions: string;
-  status: 'taken' | 'upcoming' | 'missed';
-}
+  useEffect(() => {
+    if (patientData?.mhdId) fetchMedicines();
+  }, [patientData]);
 
-interface Prescription {
-  id: string;
-  medicine: string;
-  dosage: string;
-  frequency: string;
-  instructions: string;
-  provider: string;
-  startDate: string;
-  endDate: string | null;
-  status: 'active' | 'completed';
-}
-
-const SCHEDULE_DATA: ScheduleItem[] = [
-  {
-    id: 's1',
-    time: '8:00 AM',
-    medicine: 'Lisinopril',
-    dosage: '10mg',
-    instructions: 'Take with food',
-    status: 'taken'
-  },
-  {
-    id: 's2',
-    time: '1:00 PM',
-    medicine: 'Cholecalciferol (Vitamin D3)',
-    dosage: '1000 IU',
-    instructions: 'Take after lunch',
-    status: 'upcoming'
-  },
-  {
-    id: 's3',
-    time: '8:00 PM',
-    medicine: 'Atorvastatin',
-    dosage: '20mg',
-    instructions: 'Take after dinner',
-    status: 'upcoming'
-  }
-];
-
-const PRESCRIPTION_DATA: Prescription[] = [
-  {
-    id: 'p1',
-    medicine: 'Lisinopril',
-    dosage: '10mg',
-    frequency: 'Once daily',
-    instructions: 'Take in the morning with food. Avoid potassium supplements.',
-    provider: 'Dr. Emily Chen',
-    startDate: 'Sep 02, 2026',
-    endDate: null,
-    status: 'active'
-  },
-  {
-    id: 'p2',
-    medicine: 'Atorvastatin',
-    dosage: '20mg',
-    frequency: 'Once daily',
-    instructions: 'Take in the evening. Avoid grapefruit juice.',
-    provider: 'Dr. Emily Chen',
-    startDate: 'Sep 02, 2026',
-    endDate: null,
-    status: 'active'
-  },
-  {
-    id: 'p3',
-    medicine: 'Cholecalciferol (Vitamin D3)',
-    dosage: '1000 IU',
-    frequency: 'Once daily',
-    instructions: 'Take with a meal containing fat for better absorption.',
-    provider: 'Dr. Sarah Jenkins',
-    startDate: 'Oct 15, 2026',
-    endDate: null,
-    status: 'active'
-  },
-  {
-    id: 'p4',
-    medicine: 'Amoxicillin',
-    dosage: '500mg',
-    frequency: 'Three times daily',
-    instructions: 'Take until finished. For sinus infection.',
-    provider: 'Urgent Care Center',
-    startDate: 'Jul 10, 2026',
-    endDate: 'Jul 20, 2026',
-    status: 'completed'
-  }
-];
-
-export default function MedicinesTab() {
+  const fetchMedicines = async () => {
+    setLoading(true);
+    try {
+      const q = query(collection(db, 'medicines'), where('patientId', '==', patientData.mhdId));
+      const snap = await getDocs(q);
+      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPrescriptions(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
   const [filter, setFilter] = useState('All');
 
   const filters = ['All', 'Today', 'Active', 'Completed'];

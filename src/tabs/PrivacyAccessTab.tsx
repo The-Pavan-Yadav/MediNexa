@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { db, auth } from '../firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 import { 
   Shield, 
   Lock, 
@@ -47,7 +49,19 @@ const ClinicalToggle = ({
   </div>
 );
 
-export default function PrivacyAccessTab() {
+export default function PrivacyAccessTab({ patientData }: { patientData?: any }) {
+  
+  const handleSave = async () => {
+    if (auth.currentUser) {
+      await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+        emailAlerts,
+        smsAlerts,
+        dataSharing
+      });
+      alert('Preferences saved successfully!');
+    }
+  };
+
   const [toggles, setToggles] = useState({
     specialistSharing: true,
     researchConsent: false,

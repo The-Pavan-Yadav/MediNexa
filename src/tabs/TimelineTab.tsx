@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { db } from '../firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { 
   Stethoscope, 
   Pill, 
@@ -24,90 +26,104 @@ interface TimelineEvent {
   hasDetails: boolean;
 }
 
-const TIMELINE_EVENTS: TimelineEvent[] = [
-  {
-    id: '1',
-    date: 'Nov 09, 2026',
-    time: '2:30 PM',
-    type: 'medicine',
-    title: 'New Prescription: Lisinopril 10mg',
-    provider: 'Dr. Sarah Jenkins',
-    department: 'Primary Care',
-    description: 'Prescribed to manage blood pressure. Take one tablet daily in the morning with food. Avoid potassium supplements.',
-    icon: Pill,
-    iconBg: 'bg-[#F0F5FA]',
-    iconColor: 'text-[#1F5F8B]',
-    borderColor: 'border-[#1F5F8B]',
-    hasDetails: true
-  },
-  {
-    id: '2',
-    date: 'Nov 09, 2026',
-    time: '1:00 PM',
-    type: 'consultation',
-    title: 'Primary Care Consultation',
-    provider: 'Dr. Sarah Jenkins',
-    department: 'Primary Care',
-    description: 'Routine 30-day medication review and hypertension management check-in. Vitals recorded and blood pressure is trending downward to 120/80.',
-    icon: Stethoscope,
-    iconBg: 'bg-[#FFFFFF]',
-    iconColor: 'text-[#102A43]',
-    borderColor: 'border-[#102A43]',
-    hasDetails: true
-  },
-  {
-    id: '3',
-    date: 'Oct 15, 2026',
-    time: '9:00 AM',
-    type: 'result',
-    title: 'Lab Results: Complete Blood Count',
-    provider: 'Lab Services',
-    department: 'Pathology',
-    description: 'All values within normal clinical ranges. Lipid panel shows 15% improvement since last quarter. No further action required at this time.',
-    icon: FileText,
-    iconBg: 'bg-[#E8F2EC]',
-    iconColor: 'text-[#276749]',
-    borderColor: 'border-[#276749]',
-    hasDetails: true
-  },
-  {
-    id: '4',
-    date: 'Oct 12, 2026',
-    time: '10:15 AM',
-    type: 'appointment',
-    title: 'Annual Physical Exam',
-    provider: 'Dr. Sarah Jenkins',
-    department: 'Primary Care',
-    description: 'Completed annual physical. Patient reports feeling well. Ordered standard preventative blood panels and ECG screening.',
-    icon: CalendarClock,
-    iconBg: 'bg-[#FFFFFF]',
-    iconColor: 'text-[#52606D]',
-    borderColor: 'border-[#CBD5E1]',
-    hasDetails: false
-  },
-  {
-    id: '5',
-    date: 'Sep 02, 2026',
-    time: '11:45 AM',
-    type: 'case',
-    title: 'Diagnosis: Essential Hypertension',
-    provider: 'Dr. Emily Chen',
-    department: 'Cardiology',
-    description: 'Diagnosed with Stage 1 Essential Hypertension. Initiated formal care plan, lifestyle modification tracking, and sodium restriction guidelines.',
-    icon: Activity,
-    iconBg: 'bg-[#FEF6E7]',
-    iconColor: 'text-[#975A16]',
-    borderColor: 'border-[#F6E0B5]',
-    hasDetails: true
-  }
-];
+export default function TimelineTab({ patientData }: { patientData?: any }) {
+  const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [loading, setLoading] = useState(true);
 
-export default function TimelineTab() {
+  useEffect(() => {
+    if (patientData?.mhdId) {
+      fetchTimeline();
+    }
+  }, [patientData]);
+
+  const fetchTimeline = async () => {
+    setLoading(true);
+    try {
+      const allEvents: TimelineEvent[] = [];
+      const pid = patientData.mhdId;
+
+      // Fetch Appointments
+      const apptSnap = await getDocs(query(collection(db, 'appointments'), where('patientId', '==', pid)));
+      apptSnap.forEach(doc => {
+        const d = doc.data();
+        allEvents.push({
+          id: doc.id,
+          date: d.date,
+          time: d.time || '12:00 PM',
+          type: 'appointment',
+          title: d.type || 'Appointment',
+          provider: d.doctorName || d.provider || 'Unknown',
+          department: d.department || d.specialty || 'General',
+          description: `Status: ${d.status}`,
+          icon: CalendarClock,
+          iconBg: 'bg-[#FFFFFF]',
+          iconColor: 'text-[#52606D]',
+          borderColor: 'border-[#CBD5E1]',
+          hasDetails: false,
+          timestamp: new Date(d.date + ' ' + (d.time || '12:00 PM')).getTime()
+        });
+      });
+
+      // Fetch Medicines
+      const medSnap = await getDocs(query(collection(db, 'medicines'), where('patientId', '==', pid)));
+      medSnap.forEach(doc => {
+        const d = doc.data();
+        allEvents.push({
+          id: doc.id,
+          date: d.startDate || new Date().toISOString().split('T')[0],
+          time: '08:00 AM',
+          type: 'medicine',
+          title: `Prescription: ${d.name} ${d.dosage}`,
+          provider: d.doctorName || d.prescribingDoctor || 'Unknown',
+          department: 'Pharmacy',
+          description: d.frequency || 'Take as directed',
+          icon: Pill,
+          iconBg: 'bg-[#F0F5FA]',
+          iconColor: 'text-[#1F5F8B]',
+          borderColor: 'border-[#1F5F8B]',
+          hasDetails: true,
+          timestamp: new Date(d.startDate || new Date()).getTime()
+        });
+      });
+
+      // Fetch Cases
+      const caseSnap = await getDocs(query(collection(db, 'cases'), where('patientId', '==', pid)));
+      caseSnap.forEach(doc => {
+        const d = doc.data();
+        allEvents.push({
+          id: doc.id,
+          date: d.date || new Date().toISOString().split('T')[0],
+          time: '12:00 PM',
+          type: 'case',
+          title: `Diagnosis: ${d.diagnosis}`,
+          provider: d.doctorName || 'Unknown',
+          department: d.department || 'Clinical',
+          description: `Case Status: ${d.status}`,
+          icon: Activity,
+          iconBg: 'bg-[#FEF6E7]',
+          iconColor: 'text-[#975A16]',
+          borderColor: 'border-[#F6E0B5]',
+          hasDetails: true,
+          timestamp: new Date(d.date || new Date()).getTime()
+        });
+      });
+
+      // Sort descending
+      allEvents.sort((a, b) => (b as any).timestamp - (a as any).timestamp);
+      
+      setEvents(allEvents);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const [filter, setFilter] = useState('All');
 
   const filters = ['All', 'Consultations', 'Medicines', 'Results', 'Appointments'];
 
-  const filteredEvents = TIMELINE_EVENTS.filter(event => {
+  const filteredEvents = events.filter(event => {
     if (filter === 'All') return true;
     if (filter === 'Consultations' && (event.type === 'consultation' || event.type === 'case')) return true;
     if (filter === 'Medicines' && event.type === 'medicine') return true;

@@ -13,15 +13,44 @@ import {
   UserCircle
 } from 'lucide-react';
 
-export default function MyCaseTab() {
+export default function MyCaseTab({ patientData }: { patientData?: any }) {
+  const [caseData, setCaseData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (patientData?.mhdId) fetchCase();
+  }, [patientData]);
+
+  const fetchCase = async () => {
+    setLoading(true);
+    try {
+      const q = query(collection(db, 'cases'), where('patientId', '==', patientData.mhdId));
+      const snap = await getDocs(q);
+      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const activeCases = data.filter(c => c.status !== 'Closed');
+      if (activeCases.length > 0) {
+        setCaseData(activeCases[0]);
+      } else if (data.length > 0) {
+        setCaseData(data[0]);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) return <div className="p-8 text-center text-[#52606D]">Loading case...</div>;
+  if (!caseData) return <div className="p-8 text-center text-[#52606D]">No active clinical cases found.</div>;
+
   return (
     <div className="max-w-[1000px] mx-auto space-y-6 animate-in fade-in duration-200">
       
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
         <div>
-          <h2 className="text-[22px] font-semibold text-[#102A43] mb-1">Clinical Case: Hypertension Management</h2>
-          <p className="text-[14px] text-[#52606D]">Case ID: HTN-2026-8891 • Initiated Sep 02, 2026</p>
+          <h2 className="text-[22px] font-semibold text-[#102A43] mb-1">Clinical Case: {caseData.diagnosis}</h2>
+          <p className="text-[14px] text-[#52606D]">Case ID: {caseData.id} • Initiated {caseData.date ? new Date(caseData.date).toLocaleDateString() : 'N/A'}</p>
         </div>
         <div className="flex flex-col items-end gap-2">
           <span className="bg-[#EBF1F6] text-[#1F5F8B] text-[12px] px-3 py-1 rounded-[4px] font-semibold border border-[#1F5F8B]">
@@ -41,7 +70,7 @@ export default function MyCaseTab() {
               <UserCircle className="w-10 h-10 text-[#52606D]" strokeWidth={1.5} />
               <div>
                 <p className="text-[11px] text-[#52606D] font-bold uppercase tracking-wider mb-0.5">Primary Provider</p>
-                <p className="text-[15px] font-semibold text-[#172B3A]">Dr. Emily Chen, MD</p>
+                <p className="text-[15px] font-semibold text-[#172B3A]">{caseData.doctorName || 'Assigned Doctor'}</p>
                 <p className="text-[13px] text-[#52606D]">Department of Cardiology</p>
               </div>
             </div>
@@ -59,13 +88,13 @@ export default function MyCaseTab() {
             <div className="p-5 space-y-5">
               <div>
                 <p className="text-[11px] font-bold text-[#52606D] uppercase tracking-wider mb-1">Primary Diagnosis</p>
-                <p className="text-[14px] font-medium text-[#172B3A]">Essential (primary) hypertension</p>
+                <p className="text-[14px] font-medium text-[#172B3A]">{caseData.diagnosis}</p>
                 <p className="text-[12px] text-[#52606D] mt-0.5">ICD-10 Code: I10</p>
               </div>
               <div>
                 <p className="text-[11px] font-bold text-[#52606D] uppercase tracking-wider mb-1">Provider Assessment</p>
                 <p className="text-[13px] text-[#172B3A] leading-relaxed">
-                  Patient presents with sustained elevated blood pressure readings over 3 consecutive visits (Avg: 145/92). No acute signs of end-organ damage detected. ECG indicates normal sinus rhythm. Initiating Stage 1 pharmacological intervention combined with lifestyle modifications.
+                  {caseData.symptoms || 'No specific symptoms recorded.'}
                 </p>
               </div>
             </div>
