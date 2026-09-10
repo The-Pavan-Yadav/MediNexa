@@ -1,3 +1,10 @@
+import React, { useState, useEffect } from 'react';
+import { db } from '../firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { CreditCard, Download, FileText, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
+
+type InvoiceStatus = 'paid' | 'pending' | 'overdue' | string;
+
 export default function BillingTab({ patientData }: { patientData?: any }) {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,18 +30,18 @@ export default function BillingTab({ patientData }: { patientData?: any }) {
 
   const [filter, setFilter] = useState<'All' | 'Pending' | 'Paid' | 'Overdue'>('All');
 
-  const filteredInvoices = BILLING_DATA.filter(inv => {
+  const filteredInvoices = invoices.filter(inv => {
     if (filter === 'All') return true;
-    return inv.status.toLowerCase() === filter.toLowerCase();
+    return inv.status?.toLowerCase() === filter.toLowerCase();
   });
 
-  const totalOutstanding = BILLING_DATA
-    .filter(i => i.status !== 'paid')
-    .reduce((sum, i) => sum + i.amount, 0);
+  const totalOutstanding = invoices
+    .filter(i => i.status !== 'paid' && i.status !== 'Paid')
+    .reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
 
-  const totalOverdue = BILLING_DATA
-    .filter(i => i.status === 'overdue')
-    .reduce((sum, i) => sum + i.amount, 0);
+  const totalOverdue = invoices
+    .filter(i => i.status === 'overdue' || i.status === 'Overdue')
+    .reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
 
   const StatusBadge = ({ status }: { status: InvoiceStatus }) => {
     if (status === 'paid') {

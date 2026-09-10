@@ -6,8 +6,8 @@
 import React, { useState } from 'react';
 import { User, Stethoscope, Shield, ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react';
 import { auth, db } from './firebase';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, runTransaction } from 'firebase/firestore';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { doc, setDoc, runTransaction, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 
 import PatientDashboard from './PatientDashboard';
 import DoctorDashboard from './DoctorDashboard';
@@ -33,6 +33,7 @@ export default function App() {
 
   const [portal, setPortal] = useState<PortalType | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isGoogleAuth, setIsGoogleAuth] = useState(false);
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [loggedIn, setLoggedIn] = useState<PortalType | null>(null);
@@ -53,34 +54,104 @@ export default function App() {
   const loadDemo = (type: PortalType) => {
     setPortal(type);
     setIsRegistering(false);
+    setIsGoogleAuth(false);
     setLoginId(DEMO_ACCOUNTS[type].id);
     setPassword(DEMO_ACCOUNTS[type].password);
     setAuthError('');
+  };
+
+
+  const handleGoogleAuth = async () => {
+    if (!portal) return;
+    setAuthError('');
+    setAuthLoading(true);
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        if (data.role !== portal) {
+          const roleName = data.role ? data.role.charAt(0).toUpperCase() + data.role.slice(1) : 'another role';
+          setAuthError(`This account is registered as a ${roleName}. Please use the ${roleName} Portal.`);
+          await auth.signOut();
+          setAuthLoading(false);
+          return;
+        }
+        setLoggedIn(portal);
+      } else {
+        if (portal === 'admin') {
+          setAuthError("Only pre-authorized admins can sign in. Please contact IT.");
+          await auth.signOut();
+          setAuthLoading(false);
+          return;
+        }
+        
+        // Check if email already used by a different account type
+        const emailQuery = query(collection(db, 'users'), where('email', '==', user.email || ''));
+        const emailSnap = await getDocs(emailQuery);
+        if (!emailSnap.empty) {
+          setAuthError("An account with this email already exists. Please sign in with your email and password.");
+          await auth.signOut();
+          setAuthLoading(false);
+          return;
+        }
+
+        setIsRegistering(true);
+        setIsGoogleAuth(true);
+        setName(user.displayName || '');
+        setLoginId(user.email || '');
+      }
+    } catch (error: any) {
+      console.error("Google Auth Error:", error);
+      if (error.code === 'auth/account-exists-with-different-credential') {
+         setAuthError('An account with this email exists. Please sign in with email and password to link.');
+      } else if (error.code === 'auth/unauthorized-domain') {
+         setAuthError(`Firebase Error: Unauthorized Domain. Please add "${window.location.hostname}" to the Authorized Domains in your Firebase Console (Authentication > Settings > Authorized domains).`);
+      } else if (error.code !== 'auth/popup-closed-by-user' && error.code !== 'auth/cancelled-popup-request') {
+         setAuthError(error.message || 'Google Sign-In failed.');
+      }
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
 
-    if (!portal || !loginId || !password) {
-      setAuthError('Please fill in all required fields.');
+    if (!portal) {
+      setAuthError('Portal not selected.');
       return;
     }
 
     if (isRegistering) {
-      if (password.length < 6) {
+      if (!isGoogleAuth && (!loginId || !password)) {
+        setAuthError('Please fill in all required fields.');
+        return;
+      }
+      if (!isGoogleAuth && password.length < 6) {
         setAuthError('Password must be at least 6 characters.');
         return;
       }
+
       if (portal === 'patient') {
-        if (!name || !phone || !dob || !gender || !confirmPassword) {
+        if (!name || !phone || !dob || !gender || (!isGoogleAuth && !confirmPassword)) {
           setAuthError('Please fill in all required fields.');
           return;
         }
-        if (password !== confirmPassword) {
+        if (!isGoogleAuth && password !== confirmPassword) {
           setAuthError('Passwords do not match.');
           return;
         }
+      }
+    } else {
+      if (!loginId || !password) {
+         setAuthError('Please fill in all required fields.');
+         return;
       }
     }
 
@@ -98,11 +169,16 @@ export default function App() {
       }
 
       if (isRegistering) {
-        // Create account in Firebase Auth
-        console.log("Attempting to create user with email:", loginId);
-        const userCred = await createUserWithEmailAndPassword(auth, loginId, password);
-        const uid = userCred.user.uid;
-        console.log("User created successfully in Auth, UID:", uid);
+        let uid = '';
+        if (isGoogleAuth) {
+           if (!auth.currentUser) throw new Error("Google authentication lost. Please try again.");
+           uid = auth.currentUser.uid;
+        } else {
+           console.log("Attempting to create user with email:", loginId);
+           const userCred = await createUserWithEmailAndPassword(auth, loginId, password);
+           uid = userCred.user.uid;
+           console.log("User created successfully in Auth, UID:", uid);
+        }
 
         try {
           // Generate unique ID securely via Transaction
@@ -111,7 +187,6 @@ export default function App() {
           const newIdString = await runTransaction(db, async (transaction) => {
             const counterDoc = await transaction.get(counterRef);
             let newCount = 1;
-
             if (!counterDoc.exists()) {
               transaction.set(counterRef, { [portal]: 1 });
             } else {
@@ -119,7 +194,6 @@ export default function App() {
               newCount = (data[portal] || 0) + 1;
               transaction.update(counterRef, { [portal]: newCount });
             }
-
             const prefix = portal === 'patient' ? 'P' : portal === 'doctor' ? 'D' : 'A';
             return `${prefix}-${newCount}`;
           });
@@ -133,7 +207,7 @@ export default function App() {
             mhdId: newIdString,
             createdAt: new Date().toISOString()
           };
-
+          
           if (portal === 'patient') {
             profileData.phone = phone;
             profileData.dob = dob;
@@ -153,14 +227,29 @@ export default function App() {
           setLoggedIn(portal);
         } catch (dbError: any) {
           console.error("Database operation failed during registration, rolling back Auth user...", dbError);
-          // Rollback the created user to prevent orphaned Auth accounts without Firestore profiles
-          await userCred.user.delete();
-          throw dbError; // Rethrow to be caught by the outer catch block
+          if (!isGoogleAuth && auth.currentUser) {
+            await auth.currentUser.delete();
+          }
+          throw dbError;
         }
       } else {
         // Sign in via Firebase Auth
-        await signInWithEmailAndPassword(auth, loginId, password);
-        setLoggedIn(portal);
+        const userCred = await signInWithEmailAndPassword(auth, loginId, password);
+        
+        // Verify Role!
+        const userDoc = await getDoc(doc(db, 'users', userCred.user.uid));
+        if (userDoc.exists()) {
+            const data = userDoc.data();
+            if (data.role !== portal) {
+                const roleName = data.role ? data.role.charAt(0).toUpperCase() + data.role.slice(1) : 'another role';
+                await auth.signOut();
+                throw new Error(`This account is registered as a ${roleName}. Please use the ${roleName} Portal.`);
+            }
+            setLoggedIn(portal);
+        } else {
+            await auth.signOut();
+            throw new Error("User profile not found. Please register or contact support.");
+        }
       }
     } catch (error: any) {
       console.error("Auth error caught in handleAuth:", error);
@@ -177,7 +266,6 @@ export default function App() {
       setAuthLoading(false);
     }
   };
-
   const clearForm = () => {
     setLoginId('');
     setPassword('');
@@ -211,11 +299,11 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen w-full flex flex-col lg:flex-row font-sans text-[#172B3A] bg-[#F4F6F8]">
+    <div className="min-h-screen lg:h-screen lg:overflow-hidden w-full flex flex-col lg:flex-row font-sans text-[#172B3A] bg-[#F4F6F8] box-border">
       {/* LEFT PANEL - BRANDING */}
-      <div className="lg:w-[42%] bg-[#102A43] text-white flex flex-col justify-between p-10 lg:p-14">
+      <div className="lg:w-[42%] bg-[#102A43] text-white flex flex-col justify-between p-10 lg:p-10">
         <div>
-          <div className="flex items-center gap-4 mb-12">
+          <div className="flex items-center gap-4 mb-8">
             <Logo className="w-10 h-10 text-white" />
             <div>
               <h1 className="text-[24px] font-bold tracking-wide leading-none mb-1">MHD HOSPITAL</h1>
@@ -225,12 +313,12 @@ export default function App() {
             </div>
           </div>
 
-          <div className="mb-16">
-            <h2 className="text-[28px] lg:text-[32px] font-light leading-tight mb-12">
+          <div className="mb-10">
+            <h2 className="text-[28px] lg:text-[32px] font-light leading-tight mb-8">
               One Patient.<br />One Medical Journey.
             </h2>
 
-            <div className="space-y-6">
+            <div className="space-y-3">
               <div className="flex items-center gap-4">
                 <CheckCircle2 className="w-5 h-5 text-[#CBD5E1]" strokeWidth={1.5} />
                 <span className="text-[15px] font-medium text-white">24×7 Healthcare Access</span>
@@ -254,21 +342,21 @@ export default function App() {
       </div>
 
       {/* RIGHT PANEL - AUTHENTICATION */}
-      <div className="lg:w-[58%] flex flex-col min-h-screen max-h-screen overflow-y-auto">
+      <div className="lg:w-[58%] flex flex-col h-full lg:overflow-y-auto">
         {/* Header */}
-        <header className="flex justify-end p-6 gap-6 text-[13px] font-medium text-[#52606D]">
+        <header className="flex justify-end p-6 lg:pb-4 gap-6 text-[13px] font-medium text-[#52606D]">
           <a href="#" className="hover:text-[#172B3A] transition-colors">Help</a>
           <a href="#" className="hover:text-[#172B3A] transition-colors">Privacy</a>
           <a href="#" className="hover:text-[#172B3A] transition-colors">English</a>
         </header>
 
         {/* Main Content Area */}
-        <main className="flex-1 flex flex-col justify-center items-center p-6 pb-12">
+        <main className="flex-1 flex flex-col justify-center items-center p-6 lg:pt-0 lg:pb-8">
           <div className="w-full max-w-[640px]">
             
             {/* Title Section */}
-            <div className="mb-8">
-              <h2 className="text-[24px] md:text-[28px] font-semibold text-[#172B3A] mb-2">
+            <div className="mb-5">
+              <h2 className="text-[24px] md:text-[28px] font-semibold text-[#172B3A] mb-1">
                 Welcome to MHD Hospital
               </h2>
               <p className="text-[14px] text-[#52606D]">
@@ -278,7 +366,7 @@ export default function App() {
 
             {portal === null ? (
               /* Portal Selection List */
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {/* Patient Portal */}
                 <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-5 transition-colors hover:border-[#173F5F]">
                   <div className="flex items-start sm:items-center gap-4 flex-1">
@@ -365,29 +453,28 @@ export default function App() {
               <div>
                 <button 
                   onClick={() => selectPortal(null as unknown as PortalType, false)}
-                  className="flex items-center text-[13px] font-medium text-[#52606D] hover:text-[#172B3A] mb-6 transition-colors"
+                  className="flex items-center text-[13px] font-medium text-[#52606D] hover:text-[#172B3A] mb-4 transition-colors"
                 >
                   <ArrowLeft className="w-4 h-4 mr-1.5" /> Back to portal selection
                 </button>
-
-                <form onSubmit={handleAuth} className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-6 md:p-8">
-                  <h3 className="text-[18px] font-semibold text-[#172B3A] mb-6 border-b border-[#CBD5E1] pb-4">
+                <form onSubmit={handleAuth} className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-5 lg:p-6 lg:py-5">
+                  <h3 className="text-[18px] font-semibold text-[#172B3A] mb-4 border-b border-[#CBD5E1] pb-3">
                     {portal === 'patient' && (isRegistering ? 'Create Patient Account' : 'Patient Sign In')}
                     {portal === 'doctor' && (isRegistering ? 'Create Doctor Account' : 'Doctor Sign In')}
                     {portal === 'admin' && (isRegistering ? 'Create Admin Account' : 'Administrator Sign In')}
                   </h3>
                   
                   {authError && (
-                    <div className="mb-5 p-3 bg-[#FEF2F2] border border-[#FCA5A5] text-[#B42318] text-[13px] rounded-[4px]">
+                    <div className="mb-4 p-3 bg-[#FEF2F2] border border-[#FCA5A5] text-[#B42318] text-[13px] rounded-[4px]">
                       {authError}
                     </div>
                   )}
 
-                  <div className="space-y-5">
+                  <div className="space-y-3">
                     {/* Common Registration Field: Name */}
                     {isRegistering && (
                       <div>
-                        <label className="block text-[13px] font-medium text-[#172B3A] mb-1.5">Full Name</label>
+                        <label className="block text-[13px] font-medium text-[#172B3A] mb-1">Full Name</label>
                         <input
                           type="text"
                           required
@@ -403,7 +490,7 @@ export default function App() {
                     {isRegistering && portal === 'patient' && (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                         <div className="sm:col-span-2">
-                          <label className="block text-[13px] font-medium text-[#172B3A] mb-1.5">Gender</label>
+                          <label className="block text-[13px] font-medium text-[#172B3A] mb-1">Gender</label>
                           <select
                             required
                             value={gender}
@@ -417,7 +504,7 @@ export default function App() {
                           </select>
                         </div>
                         <div>
-                          <label className="block text-[13px] font-medium text-[#172B3A] mb-1.5">Phone Number</label>
+                          <label className="block text-[13px] font-medium text-[#172B3A] mb-1">Phone Number</label>
                           <input
                             type="tel"
                             required
@@ -428,7 +515,7 @@ export default function App() {
                           />
                         </div>
                         <div>
-                          <label className="block text-[13px] font-medium text-[#172B3A] mb-1.5">Date of Birth</label>
+                          <label className="block text-[13px] font-medium text-[#172B3A] mb-1">Date of Birth</label>
                           <input
                             type="date"
                             required
@@ -444,7 +531,7 @@ export default function App() {
                     {isRegistering && portal === 'doctor' && (
                       <>
                         <div>
-                          <label className="block text-[13px] font-medium text-[#172B3A] mb-1.5">Phone Number</label>
+                          <label className="block text-[13px] font-medium text-[#172B3A] mb-1">Phone Number</label>
                           <input
                             type="tel"
                             required
@@ -456,7 +543,7 @@ export default function App() {
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                           <div>
-                            <label className="block text-[13px] font-medium text-[#172B3A] mb-1.5">Specialization</label>
+                            <label className="block text-[13px] font-medium text-[#172B3A] mb-1">Specialization</label>
                             <input
                               type="text"
                               required
@@ -467,7 +554,7 @@ export default function App() {
                             />
                           </div>
                           <div>
-                            <label className="block text-[13px] font-medium text-[#172B3A] mb-1.5">License / Reg. Number</label>
+                            <label className="block text-[13px] font-medium text-[#172B3A] mb-1">License / Reg. Number</label>
                             <input
                               type="text"
                               required
@@ -484,7 +571,7 @@ export default function App() {
                     {/* Admin Specific Registration Fields */}
                     {isRegistering && portal === 'admin' && (
                       <div>
-                        <label className="block text-[13px] font-medium text-[#172B3A] mb-1.5">Admin Role / Department</label>
+                        <label className="block text-[13px] font-medium text-[#172B3A] mb-1">Admin Role / Department</label>
                         <input
                           type="text"
                           required
@@ -498,7 +585,7 @@ export default function App() {
 
                     {/* Common Email & Password */}
                     <div>
-                      <label className="block text-[13px] font-medium text-[#172B3A] mb-1.5">
+                      <label className="block text-[13px] font-medium text-[#172B3A] mb-1">
                         {isRegistering ? 'Email Address' : (
                           <>
                             {portal === 'patient' && 'Email / Health ID'}
@@ -510,30 +597,33 @@ export default function App() {
                       <input
                         type={isRegistering ? "email" : "text"}
                         required
+                        disabled={isGoogleAuth}
                         value={loginId}
                         onChange={(e) => setLoginId(e.target.value)}
-                        className="w-full h-[40px] border border-[#CBD5E1] rounded-[4px] px-3 text-[14px] text-[#172B3A] focus:outline-none focus:border-[#1F5F8B] focus:ring-1 focus:ring-[#1F5F8B] transition-colors"
+                        className="w-full h-[40px] border border-[#CBD5E1] rounded-[4px] px-3 text-[14px] text-[#172B3A] focus:outline-none focus:border-[#1F5F8B] focus:ring-1 focus:ring-[#1F5F8B] transition-colors disabled:bg-gray-100 disabled:text-gray-500"
                         placeholder={isRegistering ? `enter.${portal}@mhd.local` : ""}
                       />
                     </div>
 
-                    <div>
-                      <label className="block text-[13px] font-medium text-[#172B3A] mb-1.5">
-                        Password
-                      </label>
-                      <input
-                        type="password"
-                        required
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="w-full h-[40px] border border-[#CBD5E1] rounded-[4px] px-3 text-[14px] text-[#172B3A] focus:outline-none focus:border-[#1F5F8B] focus:ring-1 focus:ring-[#1F5F8B] transition-colors"
-                        placeholder="••••••••"
-                      />
-                    </div>
-
-                    {isRegistering && portal === 'patient' && (
+                    {!isGoogleAuth && (
                       <div>
-                        <label className="block text-[13px] font-medium text-[#172B3A] mb-1.5">
+                        <label className="block text-[13px] font-medium text-[#172B3A] mb-1">
+                          Password
+                        </label>
+                        <input
+                          type="password"
+                          required
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className="w-full h-[40px] border border-[#CBD5E1] rounded-[4px] px-3 text-[14px] text-[#172B3A] focus:outline-none focus:border-[#1F5F8B] focus:ring-1 focus:ring-[#1F5F8B] transition-colors"
+                          placeholder="••••••••"
+                        />
+                      </div>
+                    )}
+
+                    {!isGoogleAuth && isRegistering && portal === 'patient' && (
+                      <div>
+                        <label className="block text-[13px] font-medium text-[#172B3A] mb-1">
                           Confirm Password
                         </label>
                         <input
@@ -565,11 +655,38 @@ export default function App() {
                         disabled={authLoading}
                         className="w-full h-[44px] bg-[#1F5F8B] text-[#FFFFFF] rounded-[6px] text-[14px] font-medium hover:bg-[#173F5F] transition-colors flex items-center justify-center disabled:opacity-80"
                       >
-                        {authLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (isRegistering ? 'Create Account' : 'Sign In')}
+                        {authLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (isRegistering ? (isGoogleAuth ? 'Complete Registration' : 'Create Account') : 'Sign In')}
                       </button>
                     </div>
 
-                    <div className="pt-4 text-center">
+                    {!isGoogleAuth && (
+                      <>
+                        <div className="relative my-4">
+                          <div className="absolute inset-0 flex items-center">
+                            <div className="w-full border-t border-[#CBD5E1]"></div>
+                          </div>
+                          <div className="relative flex justify-center text-[11px]">
+                            <span className="bg-[#FFFFFF] px-2 text-[#52606D] font-semibold uppercase tracking-wider">OR</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleGoogleAuth}
+                          disabled={authLoading}
+                          className="w-full h-[40px] bg-[#FFFFFF] border border-[#CBD5E1] text-[#172B3A] rounded-[4px] text-[13px] font-medium hover:bg-[#F4F6F8] transition-colors flex items-center justify-center gap-2 disabled:opacity-80"
+                        >
+                          <svg className="w-4 h-4" viewBox="0 0 24 24">
+                            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.16v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.16C1.43 8.55 1 10.22 1 12s.43 3.45 1.16 4.93l3.68-2.84z" fill="#FBBC05"/>
+                            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.16 7.07l3.68 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                          </svg>
+                          Continue with Google
+                        </button>
+                      </>
+                    )}
+
+                    <div className="pt-3 text-center">
                       <button 
                         type="button" 
                         onClick={() => { setIsRegistering(!isRegistering); setAuthError(''); }} 
@@ -585,7 +702,7 @@ export default function App() {
 
             {/* Development / Demo Section */}
             {portal === null && (
-              <div className="mt-10 pt-6 border-t border-[#CBD5E1]">
+              <div className="mt-6 pt-4 border-t border-[#CBD5E1]">
                 <p className="text-[11px] font-semibold text-[#52606D] uppercase tracking-wider mb-2">
                   Development / Demo environment
                 </p>
@@ -619,7 +736,7 @@ export default function App() {
         </main>
 
         {/* Footer */}
-        <footer className="p-6 text-[12px] text-[#52606D] flex flex-wrap justify-between items-center gap-4 mt-auto border-t border-[#CBD5E1]">
+        <footer className="p-4 lg:p-6 lg:py-4 text-[12px] text-[#52606D] flex flex-wrap justify-between items-center gap-4 mt-auto border-t border-[#CBD5E1]">
           <p>© {new Date().getFullYear()} MHD Hospital</p>
           <div className="flex gap-4">
             <a href="#" className="hover:text-[#172B3A] transition-colors">Privacy</a>

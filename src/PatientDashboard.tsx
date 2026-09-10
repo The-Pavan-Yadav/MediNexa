@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import UpcomingTab from './tabs/UpcomingTab';
 import TimelineTab from './tabs/TimelineTab';
 import MyCaseTab from './tabs/MyCaseTab';
@@ -12,7 +12,7 @@ import PrivacyAccessTab from './tabs/PrivacyAccessTab';
 import BillingTab from './tabs/BillingTab';
 import EmergencyTab from './tabs/EmergencyTab';
 import { auth, db } from './firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import {
   LayoutDashboard,
   CalendarClock,
@@ -64,6 +64,82 @@ export default function PatientDashboard({ onLogout }: PatientDashboardProps) {
     fetchUserData();
   }, []);
   const [activeTab, setActiveTab] = useState('Dashboard');
+
+  const [latestNote, setLatestNote] = useState<any>(null);
+  const [vitals, setVitals] = useState<any>(null);
+  const [nextAppointment, setNextAppointment] = useState<any>(null);
+  const [medicines, setMedicines] = useState<any[]>([]);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
+
+  useEffect(() => {
+    if (!patientData?.mhdId) return;
+
+    setDashboardLoading(true);
+    let unsubRecords: any, unsubAppts: any, unsubMeds: any;
+
+    try {
+      // 1. Listen to latest clinical record
+      const recordsQ = query(
+        collection(db, 'clinical_records'),
+        where('patientMhdId', '==', patientData.mhdId),
+        orderBy('timestamp', 'desc'),
+        limit(1)
+      );
+      unsubRecords = onSnapshot(recordsQ, (recordsSnap) => {
+        if (!recordsSnap.empty) {
+          const latestRecord = recordsSnap.docs[0].data();
+          setVitals(latestRecord.data?.vitals || null);
+          setLatestNote({
+            doctorName: latestRecord.doctorName || 'Care Team',
+            note: latestRecord.data?.assessment?.notes || latestRecord.data?.plan?.treatment || 'No recent notes.'
+          });
+        } else {
+          setVitals(null);
+          setLatestNote(null);
+        }
+      });
+
+      // 2. Listen to Next Appointment
+      const apptsQ = query(
+        collection(db, 'appointments'),
+        where('patientId', '==', patientData.mhdId)
+      );
+      unsubAppts = onSnapshot(apptsQ, (apptsSnap) => {
+        const allAppts = apptsSnap.docs.map(doc => doc.data());
+        const upcomingAppts = allAppts
+          .filter(a => (a.status === 'upcoming' || a.status === 'Scheduled') && new Date(a.date).getTime() >= new Date().setHours(0,0,0,0))
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        
+        if (upcomingAppts.length > 0) {
+          setNextAppointment(upcomingAppts[0]);
+        } else {
+          setNextAppointment(null);
+        }
+      });
+
+      // 3. Listen to Medicines
+      const medsQ = query(
+        collection(db, 'medicines'),
+        where('patientId', '==', patientData.mhdId)
+      );
+      unsubMeds = onSnapshot(medsQ, (medsSnap) => {
+        const allMeds = medsSnap.docs.map(doc => doc.data());
+        const activeMeds = allMeds.filter(m => m.status !== 'Discontinued');
+        setMedicines(activeMeds);
+        setDashboardLoading(false); // Can set to false here as this is the last one
+      });
+
+    } catch (err) {
+      console.error("Error setting up dashboard listeners:", err);
+      setDashboardLoading(false);
+    }
+
+    return () => {
+      if (unsubRecords) unsubRecords();
+      if (unsubAppts) unsubAppts();
+      if (unsubMeds) unsubMeds();
+    };
+  }, [patientData]);
 
   const NavItem = ({ icon: Icon, label, active, onClick, danger = false }: any) => (
     <button
@@ -169,29 +245,51 @@ export default function PatientDashboard({ onLogout }: PatientDashboardProps) {
                 <h2 className="text-[22px] font-semibold text-[#102A43] mb-1">Good morning, {patientData?.name ? patientData.name.split(" ")[0] : "Patient"}.</h2>
                 <p className="text-[14px] text-[#52606D]">Here is your healthcare summary for today.</p>
               </div>
-              <div className="flex gap-6 text-[13px]">
+              <div className="flex gap-6 text-[13px] flex-wrap">
                 <div>
                   <p className="text-[#52606D] mb-0.5">Date of Birth</p>
                   <p className="font-medium text-[#172B3A]">{patientData?.dob ? new Date(patientData.dob).toLocaleDateString() : "Not Set"}</p>
                 </div>
-                <div className="w-px bg-[#CBD5E1]"></div>
+                <div className="w-px bg-[#CBD5E1] hidden sm:block"></div>
+                <div>
+                  <p className="text-[#52606D] mb-0.5">Gender</p>
+                  <p className="font-medium text-[#172B3A] capitalize">{patientData?.gender || "Not Set"}</p>
+                </div>
+                <div className="w-px bg-[#CBD5E1] hidden sm:block"></div>
+                <div>
+                  <p className="text-[#52606D] mb-0.5">Contact</p>
+                  <p className="font-medium text-[#172B3A]">{patientData?.phone || "Not Set"}</p>
+                </div>
+                <div className="w-px bg-[#CBD5E1] hidden sm:block"></div>
                 <div>
                   <p className="text-[#52606D] mb-0.5">Primary Care</p>
-                  <p className="font-medium text-[#172B3A]">Dr. S. Jenkins</p>
+                  <p className="font-medium text-[#172B3A]">{patientData?.primaryDoctor || "Not Assigned"}</p>
                 </div>
               </div>
             </div>
 
             {/* 2. Doctor Status */}
+            {latestNote ? (
             <div className="bg-[#EBF1F6] border-l-4 border-[#1F5F8B] border-y border-r border-y-[#CBD5E1] border-r-[#CBD5E1] rounded-[4px] p-4 flex items-start gap-4">
               <Activity className="w-5 h-5 text-[#1F5F8B] mt-0.5 shrink-0" />
               <div>
-                <h3 className="text-[14px] font-semibold text-[#102A43] mb-1">New Care Team Note</h3>
+                <h3 className="text-[14px] font-semibold text-[#102A43] mb-1">Care Team Note from {latestNote.doctorName}</h3>
                 <p className="text-[13px] text-[#172B3A] leading-relaxed">
-                  Dr. Sarah Jenkins has reviewed your recent Comprehensive Metabolic Panel. All results are within normal clinical ranges. Please maintain your current care plan and medication schedule.
+                  {latestNote.note}
                 </p>
               </div>
             </div>
+            ) : (
+            <div className="bg-[#F4F6F8] border border-[#CBD5E1] rounded-[4px] p-4 flex items-start gap-4">
+              <Activity className="w-5 h-5 text-[#52606D] mt-0.5 shrink-0" />
+              <div>
+                <h3 className="text-[14px] font-semibold text-[#102A43] mb-1">No Recent Notes</h3>
+                <p className="text-[13px] text-[#52606D] leading-relaxed">
+                  You do not have any new care team notes at this time.
+                </p>
+              </div>
+            </div>
+            )}
 
             {/* 3. Health Status & Next Appointment (2 Columns) */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -203,45 +301,43 @@ export default function PatientDashboard({ onLogout }: PatientDashboardProps) {
                 <div className="grid grid-cols-3 gap-4">
                   <div className="p-3 bg-[#F4F6F8] rounded-[4px] border border-[#CBD5E1]">
                     <p className="text-[11px] text-[#52606D] uppercase font-semibold mb-1">Blood Pressure</p>
-                    <p className="text-[18px] font-semibold text-[#172B3A]">120/80</p>
-                    <p className="text-[11px] text-[#276749] mt-1">Normal</p>
+                    <p className="text-[18px] font-semibold text-[#172B3A]">{vitals?.bp || '--/--'}</p>
                   </div>
                   <div className="p-3 bg-[#F4F6F8] rounded-[4px] border border-[#CBD5E1]">
                     <p className="text-[11px] text-[#52606D] uppercase font-semibold mb-1">Heart Rate</p>
-                    <p className="text-[18px] font-semibold text-[#172B3A]">72 <span className="text-[12px] text-[#52606D] font-normal">bpm</span></p>
-                    <p className="text-[11px] text-[#276749] mt-1">Normal</p>
+                    <p className="text-[18px] font-semibold text-[#172B3A]">{vitals?.hr || '--'} <span className="text-[12px] text-[#52606D] font-normal">bpm</span></p>
                   </div>
                   <div className="p-3 bg-[#F4F6F8] rounded-[4px] border border-[#CBD5E1]">
                     <p className="text-[11px] text-[#52606D] uppercase font-semibold mb-1">Weight</p>
-                    <p className="text-[18px] font-semibold text-[#172B3A]">165 <span className="text-[12px] text-[#52606D] font-normal">lbs</span></p>
-                    <p className="text-[11px] text-[#52606D] mt-1">Recorded 2w ago</p>
+                    <p className="text-[18px] font-semibold text-[#172B3A]">{vitals?.weight || '--'} <span className="text-[12px] text-[#52606D] font-normal">lbs</span></p>
                   </div>
                 </div>
               </div>
 
               {/* Next Appointment */}
-              <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-5">
+              <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-5 flex flex-col h-full">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-[15px] font-semibold text-[#172B3A] flex items-center gap-2">
                     <CalendarClock className="w-4 h-4 text-[#52606D]" /> Next Appointment
                   </h3>
-                  <span className="bg-[#FEF6E7] text-[#975A16] text-[11px] px-2 py-0.5 rounded-[4px] font-semibold border border-[#F6E0B5]">
-                    In 3 Days
-                  </span>
                 </div>
+                {nextAppointment ? (
                 <div className="flex items-start gap-4">
                   <div className="bg-[#F4F6F8] border border-[#CBD5E1] rounded-[4px] p-3 text-center min-w-[70px]">
-                    <p className="text-[11px] text-[#52606D] uppercase font-bold">Nov</p>
-                    <p className="text-[20px] font-bold text-[#102A43]">12</p>
+                    <p className="text-[11px] text-[#52606D] uppercase font-bold">{new Date(nextAppointment.date).toLocaleDateString('en-US', { month: 'short' })}</p>
+                    <p className="text-[20px] font-bold text-[#102A43]">{new Date(nextAppointment.date).getDate()}</p>
                   </div>
                   <div>
-                    <h4 className="text-[15px] font-medium text-[#172B3A]">Cardiology Follow-up</h4>
-                    <p className="text-[13px] text-[#52606D] mt-1">Dr. Emily Chen • Dept. of Cardiology</p>
+                    <h4 className="text-[15px] font-medium text-[#172B3A]">{nextAppointment.type || 'Follow-up'}</h4>
+                    <p className="text-[13px] text-[#52606D] mt-1">{nextAppointment.provider} • {nextAppointment.specialty || 'General'}</p>
                     <p className="text-[13px] text-[#52606D] mt-1 flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5" /> 10:00 AM - 10:30 AM
+                      <Clock className="w-3.5 h-3.5" /> {nextAppointment.time || 'TBD'}
                     </p>
                   </div>
                 </div>
+                ) : (
+                  <p className="text-[13px] text-[#52606D] mt-4">You have no upcoming appointments scheduled.</p>
+                )}
               </div>
             </div>
 
@@ -250,30 +346,22 @@ export default function PatientDashboard({ onLogout }: PatientDashboardProps) {
               {/* Today's Medicines */}
               <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-5">
                 <h3 className="text-[15px] font-semibold text-[#172B3A] mb-4 flex items-center gap-2">
-                  <Pill className="w-4 h-4 text-[#52606D]" /> Today's Medicines
+                  <Pill className="w-4 h-4 text-[#52606D]" /> Active Medicines
                 </h3>
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 border border-[#CBD5E1] rounded-[4px] bg-[#F9FAFB]">
-                    <div className="flex items-center gap-3">
-                      <CheckCircle2 className="w-5 h-5 text-[#276749]" />
-                      <div>
-                        <p className="text-[14px] font-medium text-[#172B3A] line-through opacity-70">Lisinopril 10mg</p>
-                        <p className="text-[12px] text-[#52606D]">Taken at 8:00 AM</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between p-3 border border-[#CBD5E1] rounded-[4px]">
+                  {medicines.length > 0 ? medicines.map((med: any, idx: number) => (
+                  <div key={idx} className="flex items-center justify-between p-3 border border-[#CBD5E1] rounded-[4px]">
                     <div className="flex items-center gap-3">
                       <div className="w-5 h-5 rounded-full border-2 border-[#CBD5E1] flex-shrink-0"></div>
                       <div>
-                        <p className="text-[14px] font-medium text-[#172B3A]">Atorvastatin 20mg</p>
-                        <p className="text-[12px] text-[#52606D]">Take with dinner</p>
+                        <p className="text-[14px] font-medium text-[#172B3A]">{med.name} {med.dosage}</p>
+                        <p className="text-[12px] text-[#52606D]">{med.instructions}</p>
                       </div>
                     </div>
-                    <button className="text-[12px] font-medium text-[#1F5F8B] border border-[#1F5F8B] px-3 py-1 rounded-[4px] hover:bg-[#EBF1F6] transition-colors">
-                      Mark Taken
-                    </button>
                   </div>
+                  )) : (
+                    <p className="text-[13px] text-[#52606D]">No active medicines found.</p>
+                  )}
                 </div>
               </div>
 

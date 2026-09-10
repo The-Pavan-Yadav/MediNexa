@@ -60,13 +60,13 @@ export default function AppointmentsTab({ patientData }: { patientData?: any }) 
   const filters = ['Upcoming', 'Completed', 'Cancelled'];
 
   const filteredAppointments = appointments.filter(app => {
-    if (filter === 'Upcoming' && app.status === 'upcoming' || app.status === 'Scheduled') return true;
-    if (filter === 'Completed' && app.status === 'completed' || app.status === 'Completed') return true;
-    if (filter === 'Cancelled' && app.status === 'cancelled' || app.status === 'Cancelled') return true;
+    if (filter === 'Upcoming' && (app.status === 'upcoming' || app.status === 'Scheduled')) return true;
+    if (filter === 'Completed' && (app.status === 'completed' || app.status === 'Completed')) return true;
+    if (filter === 'Cancelled' && (app.status === 'cancelled' || app.status === 'Cancelled')) return true;
     return false;
   });
 
-  const nextAppointment = APPOINTMENTS_DATA.find(app => app.isNext && app.status === 'upcoming');
+  const nextAppointment = appointments.find(app => app.isNext && (app.status === 'upcoming' || app.status === 'Scheduled'));
   const regularUpcoming = filteredAppointments.filter(app => !app.isNext);
 
   return (

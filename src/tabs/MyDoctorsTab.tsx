@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { db } from '../firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { 
   Stethoscope, 
   MessageSquare, 
@@ -45,8 +47,8 @@ export default function MyDoctorsTab({ patientData }: { patientData?: any }) {
     }
   };
 
-  const primaryDoctor = DOCTORS_DATA.find(d => d.isPrimary);
-  const otherDoctors = DOCTORS_DATA.filter(d => !d.isPrimary);
+  const primaryDoctor = doctors.length > 0 ? doctors[0] : null;
+  const otherDoctors = doctors.length > 1 ? doctors.slice(1) : [];
 
   return (
     <div className="max-w-[1000px] mx-auto space-y-6 animate-in fade-in duration-200">
@@ -80,12 +82,12 @@ export default function MyDoctorsTab({ patientData }: { patientData?: any }) {
                       <ShieldCheck className="w-3 h-3" /> Lead Provider
                     </span>
                   </div>
-                  <p className="text-[13px] font-medium text-[#172B3A]">{primaryDoctor.title}</p>
-                  <p className="text-[13px] text-[#52606D] mt-0.5">{primaryDoctor.department}</p>
+                  <p className="text-[13px] font-medium text-[#172B3A]">{primaryDoctor.specialization || primaryDoctor.title || 'General Practitioner'}</p>
+                  <p className="text-[13px] text-[#52606D] mt-0.5">{primaryDoctor.department || 'Primary Care'}</p>
                   
                   <div className="mt-3 flex items-center gap-1.5 text-[12px] text-[#52606D] bg-[#F4F6F8] px-2 py-1 rounded-[4px] border border-[#CBD5E1] inline-flex">
                     <Clock className="w-3.5 h-3.5" /> 
-                    <span className="font-medium text-[#172B3A]">Hours:</span> {primaryDoctor.availability}
+                    <span className="font-medium text-[#172B3A]">Hours:</span> {primaryDoctor.availability || 'Mon-Fri 9AM-5PM'}
                   </div>
                 </div>
               </div>
@@ -95,7 +97,7 @@ export default function MyDoctorsTab({ patientData }: { patientData?: any }) {
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
                     <span className="text-[12px] font-bold text-[#52606D] uppercase w-20">Last Visit:</span>
-                    <span className="text-[13px] font-medium text-[#172B3A]">{primaryDoctor.lastVisit}</span>
+                    <span className="text-[13px] font-medium text-[#172B3A]">{primaryDoctor.lastVisit || 'No previous visits'}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[12px] font-bold text-[#52606D] uppercase w-20">Next Visit:</span>
@@ -154,10 +156,10 @@ export default function MyDoctorsTab({ patientData }: { patientData?: any }) {
                         </span>
                       )}
                     </div>
-                    <p className="text-[13px] font-medium text-[#172B3A]">{doctor.title}</p>
-                    <p className="text-[12px] text-[#52606D] mt-0.5">{doctor.department}</p>
+                    <p className="text-[13px] font-medium text-[#172B3A]">{doctor.specialization || doctor.title || 'Specialist'}</p>
+                    <p className="text-[12px] text-[#52606D] mt-0.5">{doctor.department || 'Specialty Care'}</p>
                     <div className="mt-2 text-[12px] text-[#52606D]">
-                      <span className="font-semibold text-[#172B3A]">Hours:</span> {doctor.availability}
+                      <span className="font-semibold text-[#172B3A]">Hours:</span> {doctor.availability || 'Variable'}
                     </div>
                   </div>
                 </div>
@@ -167,7 +169,7 @@ export default function MyDoctorsTab({ patientData }: { patientData?: any }) {
                   <div className="space-y-1 min-w-[140px]">
                     <div className="text-[12px] text-[#52606D]">
                       <span className="font-bold uppercase mr-1">Last:</span>
-                      <span className="text-[#172B3A] font-medium">{doctor.lastVisit}</span>
+                      <span className="text-[#172B3A] font-medium">{doctor.lastVisit || 'N/A'}</span>
                     </div>
                     <div className="text-[12px] text-[#52606D]">
                       <span className="font-bold uppercase mr-1">Next:</span>

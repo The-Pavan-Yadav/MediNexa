@@ -105,11 +105,13 @@ export default function ResultsTab({ patientData }: { patientData?: any }) {
       const mappedResults = data.map(d => ({
         id: d.id,
         date: d.date,
-        type: d.diagnosis,
-        orderedBy: d.doctorName || 'Clinical Team',
-        status: 'Final',
+        type: d.diagnosis || 'other',
+        title: d.diagnosis || 'Clinical Assessment',
+        provider: d.doctorName || 'Clinical Team',
+        status: 'completed',
         summary: d.symptoms || 'Case closed or active.',
-        flag: d.priority === 'High' ? 'Abnormal' : 'Normal'
+        flag: d.priority === 'High' ? 'abnormal' : 'normal',
+        metrics: []
       }));
       setResults(mappedResults);
     } catch (e) {
@@ -123,7 +125,7 @@ export default function ResultsTab({ patientData }: { patientData?: any }) {
 
   const filters = ['All', 'Blood Tests', 'Imaging', 'Other'];
 
-  const filteredResults = RESULTS_DATA.filter(r => {
+  const filteredResults = results.filter(r => {
     if (filter === 'All') return true;
     if (filter === 'Blood Tests' && r.type === 'blood') return true;
     if (filter === 'Imaging' && r.type === 'imaging') return true;

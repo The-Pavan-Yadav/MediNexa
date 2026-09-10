@@ -1,3 +1,8 @@
+import React, { useState, useEffect } from 'react';
+import { db } from '../firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { Clock, Pill, CheckCircle2, XCircle, Info, Stethoscope, Calendar } from 'lucide-react';
+
 export default function MedicinesTab({ patientData }: { patientData?: any }) {
   const [prescriptions, setPrescriptions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,10 +32,10 @@ export default function MedicinesTab({ patientData }: { patientData?: any }) {
   const showActive = filter === 'All' || filter === 'Active';
   const showCompleted = filter === 'All' || filter === 'Completed';
 
-  const filteredPrescriptions = PRESCRIPTION_DATA.filter(p => {
+  const filteredPrescriptions = prescriptions.filter(p => {
     if (filter === 'All') return true;
-    if (filter === 'Active' && p.status === 'active') return true;
-    if (filter === 'Completed' && p.status === 'completed') return true;
+    if (filter === 'Active' && p.status !== 'Discontinued') return true;
+    if (filter === 'Completed' && p.status === 'Discontinued') return true;
     if (filter === 'Today') return false; // Today only shows schedule
     return false;
   });
@@ -70,53 +75,36 @@ export default function MedicinesTab({ patientData }: { patientData?: any }) {
           </div>
           
           <div className="grid grid-cols-1 gap-3">
-            {SCHEDULE_DATA.map(item => (
+            {prescriptions.filter(p => p.status !== 'Discontinued').map((item, idx) => (
               <div 
-                key={item.id} 
-                className={`border rounded-[4px] p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors ${
-                  item.status === 'taken' 
-                    ? 'bg-[#F9FAFB] border-[#CBD5E1]' 
-                    : item.status === 'missed'
-                    ? 'bg-[#FEF2F2] border-[#FCA5A5]'
-                    : 'bg-[#FFFFFF] border-[#CBD5E1] hover:border-[#173F5F]'
-                }`}
+                key={item.id || idx} 
+                className={`border rounded-[4px] p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors bg-[#FFFFFF] border-[#CBD5E1] hover:border-[#173F5F]`}
               >
                 <div className="flex items-start gap-4 flex-1">
                   <div className="mt-0.5 shrink-0">
-                    {item.status === 'taken' && <CheckCircle2 className="w-5 h-5 text-[#276749]" />}
-                    {item.status === 'missed' && <XCircle className="w-5 h-5 text-[#B42318]" />}
-                    {item.status === 'upcoming' && <div className="w-5 h-5 rounded-full border-2 border-[#CBD5E1]"></div>}
+                    <div className="w-5 h-5 rounded-full border-2 border-[#CBD5E1]"></div>
                   </div>
                   <div>
                     <div className="flex items-center gap-2 mb-1">
-                      <span className={`text-[13px] font-bold tracking-wide uppercase ${item.status === 'taken' ? 'text-[#52606D]' : 'text-[#1F5F8B]'}`}>
-                        {item.time}
+                      <span className={`text-[13px] font-bold tracking-wide uppercase text-[#1F5F8B]`}>
+                        {item.frequency || 'Daily'}
                       </span>
-                      {item.status === 'taken' && (
-                        <span className="text-[11px] font-semibold text-[#276749] bg-[#E8F2EC] px-2 py-0.5 rounded-[4px] border border-[#BCE3C6]">
-                          Taken
-                        </span>
-                      )}
-                      {item.status === 'missed' && (
-                        <span className="text-[11px] font-semibold text-[#B42318] bg-[#FEF2F2] px-2 py-0.5 rounded-[4px] border border-[#FCA5A5]">
-                          Missed
-                        </span>
-                      )}
                     </div>
-                    <p className={`text-[15px] font-semibold ${item.status === 'taken' ? 'text-[#52606D] line-through opacity-80' : 'text-[#172B3A]'}`}>
-                      {item.medicine} <span className="font-normal text-[#52606D] ml-1">{item.dosage}</span>
+                    <p className={`text-[15px] font-semibold text-[#172B3A]`}>
+                      {item.name || item.medicine} <span className="font-normal text-[#52606D] ml-1">{item.dosage}</span>
                     </p>
                     <p className="text-[13px] text-[#52606D] mt-0.5">{item.instructions}</p>
                   </div>
                 </div>
                 
-                {item.status === 'upcoming' && (
-                  <button className="text-[13px] font-medium text-[#1F5F8B] border border-[#1F5F8B] px-4 py-2 rounded-[4px] hover:bg-[#EBF1F6] transition-colors shrink-0 whitespace-nowrap">
-                    Mark as Taken
-                  </button>
-                )}
+                <button className="text-[13px] font-medium text-[#1F5F8B] border border-[#1F5F8B] px-4 py-2 rounded-[4px] hover:bg-[#EBF1F6] transition-colors shrink-0 whitespace-nowrap">
+                  Mark as Taken
+                </button>
               </div>
             ))}
+            {prescriptions.filter(p => p.status !== 'Discontinued').length === 0 && (
+              <p className="text-[13px] text-[#52606D]">No schedule available.</p>
+            )}
           </div>
         </div>
       )}
