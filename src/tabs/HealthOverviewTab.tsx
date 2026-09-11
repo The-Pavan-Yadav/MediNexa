@@ -1,221 +1,95 @@
-import React, { useState, useEffect } from 'react';
-import { db, auth } from '../firebase';
-import { collection, query, where, getDocs, onSnapshot, orderBy, limit } from 'firebase/firestore';
-import { 
-  Activity, 
-  HeartPulse, 
-  Scale, 
-  Droplets, 
-  AlertCircle, 
-  CheckCircle2, 
-  Stethoscope, 
-  ClipboardList,
-  ShieldAlert,
-  ArrowRight,
-  Thermometer
-} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Activity } from 'lucide-react';
+import type { MhdUser, VitalsDoc } from '../lib/types';
+import { fmtD, fmtDT } from '../lib/format';
+import { bind } from './bind';
+import { PageHeader, Loading, EmptyState } from './common';
 
-export default function HealthOverviewTab({ patientData }: { patientData?: any }) {
-  const [latestRecord, setLatestRecord] = useState<any>(null);
-  const [latestCase, setLatestCase] = useState<any>(null);
-  
-  useEffect(() => {
-    if (!auth.currentUser) return;
-    
-    // Listen to latest clinical record
-    const qRecord = query(
-      collection(db, 'clinical_records'),
-      where('patientId', '==', auth.currentUser.uid),
-      orderBy('timestamp', 'desc'),
-      limit(1)
-    );
-    
-    const unsubRecord = onSnapshot(qRecord, (snap) => {
-      if (!snap.empty) {
-        setLatestRecord({ id: snap.docs[0].id, ...snap.docs[0].data() });
-      } else {
-        setLatestRecord(null);
-      }
-    });
+function Spark({ values }: { values: number[] }) {
+  if (values.length < 2) return null;
+  const min = Math.min(...values), max = Math.max(...values);
+  const range = max - min || 1;
+  const pts = values.map((v, i) => `${(i / (values.length - 1)) * 100},${28 - ((v - min) / range) * 24}`).join(' ');
+  return (
+    <svg viewBox="0 0 100 30" preserveAspectRatio="none" className="w-full h-[32px]">
+      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth="1.6" className="text-primary" />
+    </svg>
+  );
+}
 
-    // Listen to latest case
-    const qCase = query(
-      collection(db, 'cases'),
-      where('patientId', '==', auth.currentUser.uid),
-      orderBy('lastUpdated', 'desc'),
-      limit(1)
-    );
+export default function HealthOverviewTab({ patientData }: { patientData: MhdUser }) {
+  const [vitals, setVitals] = useState<VitalsDoc[] | null>(null);
 
-    const unsubCase = onSnapshot(qCase, (snap) => {
-      if (!snap.empty) {
-        setLatestCase({ id: snap.docs[0].id, ...snap.docs[0].data() });
-      } else {
-        setLatestCase(null);
-      }
-    });
+  useEffect(() => bind<VitalsDoc>('vitals', [['patientId', '==', patientData.id]], setVitals), [patientData.id]);
 
-    return () => {
-      unsubRecord();
-      unsubCase();
-    };
-  }, []);
+  if (vitals === null) return <div className="max-w-[1000px] mx-auto"><Loading /></div>;
 
-  const d = latestRecord?.data;
-  const v = d?.vitals || {};
-  const a = d?.assessment || {};
-  
-  const formatDate = (ts: any) => {
-    if (!ts) return 'Unknown date';
-    const date = ts.toDate ? ts.toDate() : new Date(ts);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  };
+  const sorted = [...vitals].sort((a, b) => b.createdAt - a.createdAt);
+  const latest = sorted[0];
+  const last7 = sorted.slice(0, 7).reverse();
+
+  const num = (v?: string) => { const n = parseFloat(String(v || '')); return isNaN(n) ? null : n; };
+  const sys = latest?.bp ? num(latest.bp.split('/')[0]) : null;
+  const dia = latest?.bp ? num(latest.bp.split('/')[1]) : null;
+
+  const metric = (label: string, unit: string, val: string | number | null, series: (number | null)[]) => (
+    <div className="bg-surface border border-line rounded-[4px] p-4 shadow-sm">
+      <p className="text-[11px] font-bold text-muted uppercase tracking-wider">{label}</p>
+      <p className="text-[24px] font-bold text-heading leading-tight mt-1">{val ?? '—'} <span className="text-[12px] text-muted font-normal">{unit}</span></p>
+      <Spark values={series.filter((v): v is number => v != null)} />
+    </div>
+  );
 
   return (
-    <div className="max-w-[1000px] mx-auto space-y-6 animate-in fade-in duration-200">
-      
-      {/* Header */}
-      <div>
-        <h2 className="text-[22px] font-semibold text-[#102A43] mb-1">Health Overview</h2>
-        <p className="text-[14px] text-[#52606D]">A comprehensive summary of your current health status, vitals, and active care plans.</p>
-      </div>
+    <div className="max-w-[1000px] mx-auto space-y-6 pb-12">
+      <PageHeader title="📈 Health Overview" sub="Vitals recorded by your doctors, with trends." />
 
-      {/* Top Section: Status & Progress */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        
-        {/* Overall Health Status */}
-        <div className="bg-[#FFFFFF] border-l-4 border-[#1F5F8B] border-y border-r border-[#CBD5E1] rounded-[4px] p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-[14px] font-semibold text-[#102A43] flex items-center gap-2">
-              <Activity className="w-4 h-4" strokeWidth={2} />
-              Clinical Assessment
-            </h3>
-            <span className="bg-[#E8F2EC] text-[#276749] text-[11px] px-2.5 py-1 rounded-[4px] font-bold border border-[#BCE3C6] uppercase tracking-wider">
-              {latestCase?.status || 'Active'}
-            </span>
+      {sorted.length === 0 ? (
+        <EmptyState icon={<Activity className="w-8 h-8 text-ghost mx-auto" strokeWidth={1.5} />} title="No vitals recorded yet" sub="When a doctor records your vitals they will show up here." />
+      ) : (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {metric('Blood Pressure', 'mmHg', sys != null && dia != null ? sys + '/' + dia : null, last7.map((v) => num(v.bp?.split('/')[0])))}
+            {metric('Temperature', '°F', num(latest?.temp), last7.map((v) => num(v.temp)))}
+            {metric('Heart Rate', 'bpm', num(latest?.hr), last7.map((v) => num(v.hr)))}
+            {metric('Weight', 'kg', num(latest?.wt), last7.map((v) => num(v.wt)))}
           </div>
-          
-          <div className="text-[13px] text-[#172B3A] leading-relaxed mb-4">
-            {a.diagnosis ? (
-              <p><strong>Diagnosis:</strong> {a.diagnosis}</p>
-            ) : latestCase?.diagnosis ? (
-              <p><strong>Diagnosis:</strong> {latestCase.diagnosis}</p>
-            ) : (
-              <p>No recent diagnosis recorded.</p>
-            )}
-            
-            {a.notes ? (
-              <p className="mt-2 text-[#52606D]">{a.notes}</p>
-            ) : latestCase?.notes ? (
-              <p className="mt-2 text-[#52606D]">{latestCase.notes}</p>
-            ) : null}
-          </div>
-          
-          <div className="mt-4 pt-4 border-t border-[#CBD5E1] flex items-center justify-between">
-            <span className="text-[12px] font-medium text-[#52606D]">
-              Last updated: {latestRecord ? formatDate(latestRecord.timestamp) : (latestCase ? formatDate(latestCase.lastUpdated) : 'N/A')}
-            </span>
-            <span className="text-[12px] font-semibold text-[#102A43] flex items-center gap-1.5">
-              <Stethoscope className="w-3.5 h-3.5" /> 
-              {latestRecord?.doctorName || latestCase?.assignedDoctorName || 'Clinical Team'}
-            </span>
-          </div>
-        </div>
 
-        {/* Progress & Care Plan Focus */}
-        <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-5">
-          <h3 className="text-[14px] font-semibold text-[#172B3A] mb-4 flex items-center gap-2">
-            <ClipboardList className="w-4 h-4 text-[#102A43]" strokeWidth={2} />
-            Primary Care Plan
-          </h3>
-          
-          <div className="space-y-4">
-            <div className="bg-[#F9FAFB] border border-[#CBD5E1] rounded-[4px] p-3">
-              <p className="text-[11px] font-bold text-[#52606D] uppercase tracking-wider mb-2">Prescribed Treatment</p>
-              <ul className="space-y-2">
-                {d?.plan?.treatment ? (
-                  <li className="flex items-start gap-2 text-[12px] text-[#172B3A]">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-[#276749] mt-0.5 shrink-0" />
-                    {d.plan.treatment}
-                  </li>
-                ) : latestCase?.treatment ? (
-                  <li className="flex items-start gap-2 text-[12px] text-[#172B3A]">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-[#276749] mt-0.5 shrink-0" />
-                    {latestCase.treatment}
-                  </li>
-                ) : (
-                  <li className="text-[12px] text-[#52606D]">No specific treatment plan logged.</li>
-                )}
-                
-                {d?.plan?.followUp ? (
-                  <li className="flex items-start gap-2 text-[12px] text-[#172B3A] mt-2 border-t border-[#CBD5E1] pt-2">
-                    <Activity className="w-3.5 h-3.5 text-[#1F5F8B] mt-0.5 shrink-0" />
-                    Follow up: {d.plan.followUp}
-                  </li>
-                ) : null}
-              </ul>
+          {latest?.sym && (
+            <div className="bg-surface border-l-4 border-primary border-y border-r border-y-line border-r-line rounded-[4px] p-4">
+              <p className="text-[11px] font-bold text-muted uppercase tracking-wider mb-1">Latest symptoms noted</p>
+              <p className="text-[13px] text-ink">{latest.sym}</p>
+              <p className="text-[11px] text-muted mt-1">by {latest.doctorName} · {fmtDT(latest.createdAt)}</p>
             </div>
-            
-            {(d?.medications || latestCase?.medicines) && (
-              <div className="bg-[#FEF2F2] border border-[#FCA5A5] rounded-[4px] p-3">
-                <p className="text-[11px] font-bold text-[#B42318] uppercase tracking-wider mb-2">Active Medications</p>
-                <p className="text-[12px] text-[#172B3A]">
-                  {d?.medications || latestCase?.medicines}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+          )}
 
-      {/* Vitals & Key Metrics Board */}
-      <h3 className="text-[14px] font-semibold text-[#102A43] pt-2">Latest Clinical Vitals</h3>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        
-        <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-4 flex flex-col justify-between h-[110px]">
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] font-bold text-[#52606D] uppercase tracking-wider">Blood Pressure</span>
-            <HeartPulse className="w-4 h-4 text-[#B42318]" />
+          <div className="bg-surface border border-line rounded-[4px] shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-line bg-stripe text-[11px] font-bold text-muted uppercase tracking-wider">Recent records</div>
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-stripe border-b border-line">
+                  {['Date', 'BP', 'Temp', 'HR', 'Weight', 'Symptoms', 'By'].map((h) => (
+                    <th key={h} className="px-4 py-2.5 text-[11px] font-bold text-muted uppercase tracking-wider">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {sorted.slice(0, 10).map((v) => (
+                  <tr key={v.id} className="hover:bg-stripe transition-colors text-[13px]">
+                    <td className="px-4 py-2.5 text-muted">{fmtD(v.date)}</td>
+                    <td className="px-4 py-2.5 text-ink font-medium">{v.bp || '—'}</td>
+                    <td className="px-4 py-2.5 text-ink">{v.temp || '—'}</td>
+                    <td className="px-4 py-2.5 text-ink">{v.hr || '—'}</td>
+                    <td className="px-4 py-2.5 text-ink">{v.wt || '—'}</td>
+                    <td className="px-4 py-2.5 text-muted max-w-[220px] truncate">{v.sym || '—'}</td>
+                    <td className="px-4 py-2.5 text-muted">{v.doctorName || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div className="flex items-end gap-2">
-            <span className="text-[28px] font-bold text-[#172B3A] leading-none">{v.bp || '--/--'}</span>
-            <span className="text-[12px] text-[#52606D] font-medium mb-1">mmHg</span>
-          </div>
-        </div>
-
-        <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-4 flex flex-col justify-between h-[110px]">
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] font-bold text-[#52606D] uppercase tracking-wider">Heart Rate</span>
-            <Activity className="w-4 h-4 text-[#975A16]" />
-          </div>
-          <div className="flex items-end gap-2">
-            <span className="text-[28px] font-bold text-[#172B3A] leading-none">{v.hr || '--'}</span>
-            <span className="text-[12px] text-[#52606D] font-medium mb-1">bpm</span>
-          </div>
-        </div>
-
-        <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-4 flex flex-col justify-between h-[110px]">
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] font-bold text-[#52606D] uppercase tracking-wider">Body Temp</span>
-            <Thermometer className="w-4 h-4 text-[#1F5F8B]" />
-          </div>
-          <div className="flex items-end gap-2">
-            <span className="text-[28px] font-bold text-[#172B3A] leading-none">{v.temp || '--'}</span>
-            <span className="text-[12px] text-[#52606D] font-medium mb-1">°F</span>
-          </div>
-        </div>
-
-        <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-4 flex flex-col justify-between h-[110px]">
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] font-bold text-[#52606D] uppercase tracking-wider">Weight</span>
-            <Scale className="w-4 h-4 text-[#52606D]" />
-          </div>
-          <div className="flex items-end gap-2">
-            <span className="text-[28px] font-bold text-[#172B3A] leading-none">{v.weight || '--'}</span>
-            <span className="text-[12px] text-[#52606D] font-medium mb-1">lbs</span>
-          </div>
-        </div>
-
-      </div>
+        </>
+      )}
     </div>
   );
 }

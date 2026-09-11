@@ -1,203 +1,150 @@
-import React, { useState, useEffect } from 'react';
-import { db, auth } from '../firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { 
-  Stethoscope, 
-  MessageSquare, 
-  FileText, 
-  CalendarClock, 
-  UserCircle,
-  Star,
-  Clock,
-  ShieldCheck
-} from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Stethoscope, Phone, MapPin, MessageSquare, Loader2 } from 'lucide-react';
+import L from 'leaflet';
+import type { MhdUser } from '../lib/types';
+import { telLink } from '../lib/format';
+import { ensureThread, sendChatMessage } from '../lib/fs';
+import Modal from '../components/Modal';
+import { toast } from '../components/Toaster';
+import { PageHeader, Loading, EmptyState, StatusChip } from './common';
 
-interface Doctor {
-  id: string;
-  name: string;
-  title: string;
-  department: string;
-  isPrimary: boolean;
-  status: 'active' | 'consulting' | 'completed';
-  availability: string;
-  lastVisit: string;
-  nextVisit: string | null;
-}
+interface DocRow { id: string; name?: string; specialization?: string; experience?: string; hospital?: string; regNo?: string; phone?: string; photo?: string; onDuty?: boolean; location?: { lat: number; lng: number; updatedAt: number } }
 
-export default function MyDoctorsTab({ patientData }: { patientData?: any }) {
-  const [doctors, setDoctors] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function MyDoctorsTab({ patientData }: { patientData: MhdUser }) {
+  const [doctors, setDoctors] = useState<DocRow[] | null>(null);
+  const [chatWith, setChatWith] = useState<DocRow | null>(null);
+  const [msgs, setMsgs] = useState<{ id: string; from: string; text: string; at: number }[]>([]);
+  const [text, setText] = useState('');
+  const [locating, setLocating] = useState(false);
+  const mapDiv = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
 
   useEffect(() => {
-    fetchDoctors();
-  }, [patientData]);
+    import('firebase/firestore').then(({ collection, getDocs, query, where }) =>
+      getDocs(query(collection(db2, 'users'), where('role', '==', 'doctor')))
+        .then((s) => setDoctors(s.docs.map((d) => ({ id: d.id, ...d.data() } as DocRow))))
+        .catch(() => setDoctors([])));
+  }, []);
 
-  const fetchDoctors = async () => {
-    setLoading(true);
+  // Leaflet map of on-duty doctors
+  useEffect(() => {
+    if (!mapDiv.current || mapRef.current) return;
     try {
-      // Just fetch all doctors for now
-      const q = query(collection(db, 'users'), where('role', '==', 'doctor'));
-      const snap = await getDocs(q);
-      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setDoctors(data);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
+      const map = L.map(mapDiv.current).setView([11.0168, 76.9558], 7);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
+      mapRef.current = map;
+    } catch { /* ignore */ }
+    return () => { mapRef.current?.remove(); mapRef.current = null; };
+  }, [!!doctors]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !doctors) return;
+    const fresh = (d: DocRow) => d.onDuty && d.location && Date.now() - d.location.updatedAt < 6 * 60 * 1000;
+    const withLoc = doctors.filter(fresh);
+    doctors.forEach((d) => {
+      if (!fresh(d) || !d.location) return;
+      L.marker([d.location.lat, d.location.lng])
+        .addTo(map)
+        .bindPopup(`<b>Dr. ${d.name}</b><br/>${d.specialization || ''}`);
+    });
+    if (withLoc.length === 1) map.setView([withLoc[0].location!.lat, withLoc[0].location!.lng], 13);
+    else if (withLoc.length > 1) map.fitBounds(withLoc.map((d) => [d.location!.lat, d.location!.lng]));
+    setLocating(false);
+  }, [doctors]);
+
+  // chat subscribe
+  useEffect(() => {
+    if (!chatWith) { setMsgs([]); return; }
+    let unsub: (() => void) | null = null;
+    ensureThread(patientData.id, chatWith.id);
+    import('firebase/firestore').then(async ({ collection, onSnapshot, orderBy, query }) => {
+      const { threadId } = await import('../lib/fs');
+      unsub = onSnapshot(query(collection(db2, 'threads', threadId(patientData.id, chatWith.id), 'm'), orderBy('at')), (s) => {
+        setMsgs(s.docs.map((d) => ({ id: d.id, ...(d.data() as { from: string; text: string; at: number }) })));
+      });
+    });
+    return () => unsub?.();
+  }, [chatWith?.id, patientData.id]);
+
+  if (doctors === null) return <div className="max-w-[1000px] mx-auto space-y-6"><Loading /></div>;
+
+  const onDuty = doctors.filter((d) => d.onDuty && d.location && Date.now() - d.location.updatedAt < 6 * 60 * 1000);
+
+  const send = async () => {
+    if (!text.trim() || !chatWith) return;
+    const t2 = text; setText('');
+    try { await sendChatMessage(patientData, chatWith.id, t2, 'doctor'); }
+    catch { toast('Could not send message', 'err'); }
   };
 
-  const primaryDoctor = doctors.length > 0 ? doctors[0] : null;
-  const otherDoctors = doctors.length > 1 ? doctors.slice(1) : [];
-
   return (
-    <div className="max-w-[1000px] mx-auto space-y-6 animate-in fade-in duration-200">
-      
-      {/* Header */}
-      <div>
-        <h2 className="text-[22px] font-semibold text-[#102A43] mb-1">My Care Team</h2>
-        <p className="text-[14px] text-[#52606D]">View and manage your clinical providers, specialists, and primary care physicians.</p>
-      </div>
+    <div className="max-w-[1000px] mx-auto space-y-6 pb-12">
+      <PageHeader title="👨‍⚕️ My Doctors" sub="Find doctors, chat, call or see who is on duty right now." />
 
-      {/* Primary Care Provider */}
-      {primaryDoctor && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Star className="w-5 h-5 text-[#102A43]" strokeWidth={1.5} />
-            <h3 className="text-[15px] font-semibold text-[#172B3A]">Primary Care Provider</h3>
-          </div>
-          
-          <div className="bg-[#FFFFFF] border-l-4 border-[#1F5F8B] border-y border-r border-y-[#CBD5E1] border-r-[#CBD5E1] rounded-[4px] p-5">
-            <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
-              
-              {/* Doctor Identity */}
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-full bg-[#EBF1F6] border border-[#CBD5E1] flex items-center justify-center shrink-0">
-                  <UserCircle className="w-7 h-7 text-[#1F5F8B]" strokeWidth={1.5} />
+      {doctors.length === 0 ? (
+        <EmptyState icon={<Stethoscope className="w-8 h-8 text-ghost mx-auto" strokeWidth={1.5} />} title="No doctors registered yet" sub="Doctors will appear here once they register." />
+      ) : (
+        <div className="grid sm:grid-cols-2 gap-4">
+          {doctors.map((d) => (
+            <div key={d.id} className="bg-surface border border-line rounded-[4px] p-4 shadow-sm">
+              <div className="flex items-center gap-3">
+                {d.photo ? <img src={d.photo} alt="" className="w-11 h-11 rounded-full object-cover" />
+                  : <div className="w-11 h-11 rounded-full bg-active flex items-center justify-center text-[18px]">👨‍⚕️</div>}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[14px] font-semibold text-ink">Dr. {d.name}</p>
+                  <p className="text-[12px] text-muted truncate">{d.specialization || 'General'} · {d.hospital || 'MHD Hospital'}</p>
                 </div>
-                <div>
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <h4 className="text-[16px] font-semibold text-[#172B3A]">{primaryDoctor.name}</h4>
-                    <span className="bg-[#E8F2EC] text-[#276749] text-[10px] px-2 py-0.5 rounded-[4px] font-bold uppercase tracking-wider border border-[#BCE3C6] flex items-center gap-1">
-                      <ShieldCheck className="w-3 h-3" /> Lead Provider
-                    </span>
-                  </div>
-                  <p className="text-[13px] font-medium text-[#172B3A]">{primaryDoctor.specialization || primaryDoctor.title || 'General Practitioner'}</p>
-                  <p className="text-[13px] text-[#52606D] mt-0.5">{primaryDoctor.department || 'Primary Care'}</p>
-                  
-                  <div className="mt-3 flex items-center gap-1.5 text-[12px] text-[#52606D] bg-[#F4F6F8] px-2 py-1 rounded-[4px] border border-[#CBD5E1] inline-flex">
-                    <Clock className="w-3.5 h-3.5" /> 
-                    <span className="font-medium text-[#172B3A]">Hours:</span> {primaryDoctor.availability || 'Mon-Fri 9AM-5PM'}
-                  </div>
-                </div>
+                {d.onDuty && d.location && Date.now() - d.location.updatedAt < 6 * 60 * 1000
+                  ? <StatusChip ok>🟢 On Duty</StatusChip> : <StatusChip warn>⚫ Off Duty</StatusChip>}
               </div>
-
-              {/* Clinical Context & Actions */}
-              <div className="flex flex-col sm:flex-row md:flex-col lg:flex-row items-start lg:items-center gap-6 md:gap-4 lg:gap-8 shrink-0">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[12px] font-bold text-[#52606D] uppercase w-20">Last Visit:</span>
-                    <span className="text-[13px] font-medium text-[#172B3A]">{primaryDoctor.lastVisit || 'No previous visits'}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[12px] font-bold text-[#52606D] uppercase w-20">Next Visit:</span>
-                    <span className="text-[13px] font-semibold text-[#1F5F8B]">{primaryDoctor.nextVisit || 'None scheduled'}</span>
-                  </div>
-                </div>
-
-                <div className="flex flex-row md:flex-col lg:flex-row gap-2 w-full sm:w-auto">
-                  <button className="flex-1 sm:flex-none text-[13px] font-medium text-[#1F5F8B] bg-[#FFFFFF] border border-[#1F5F8B] px-4 py-2 rounded-[4px] hover:bg-[#EBF1F6] transition-colors flex items-center justify-center gap-2 whitespace-nowrap">
-                    <FileText className="w-4 h-4" /> View Records
-                  </button>
-                  <button className="flex-1 sm:flex-none text-[13px] font-medium text-[#FFFFFF] bg-[#1F5F8B] px-4 py-2 rounded-[4px] hover:bg-[#173F5F] transition-colors flex items-center justify-center gap-2 whitespace-nowrap">
-                    <MessageSquare className="w-4 h-4" /> Message
-                  </button>
-                </div>
-              </div>
-
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Specialists & Care Team */}
-      <div className="space-y-4 pt-4">
-        <div className="flex items-center gap-2">
-          <Stethoscope className="w-5 h-5 text-[#102A43]" strokeWidth={1.5} />
-          <h3 className="text-[15px] font-semibold text-[#172B3A]">Specialists & Care Team</h3>
-        </div>
-        
-        <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] divide-y divide-[#CBD5E1] overflow-hidden">
-          {otherDoctors.map(doctor => (
-            <div key={doctor.id} className="p-5 hover:bg-[#F9FAFB] transition-colors">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                
-                {/* Doctor Identity */}
-                <div className="flex items-start gap-4 flex-1">
-                  <div className="w-10 h-10 rounded-full bg-[#F4F6F8] border border-[#CBD5E1] flex items-center justify-center shrink-0 mt-1">
-                    <UserCircle className="w-6 h-6 text-[#52606D]" strokeWidth={1.5} />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <h4 className="text-[15px] font-semibold text-[#172B3A]">{doctor.name}</h4>
-                      {doctor.status === 'active' && (
-                        <span className="text-[#1F5F8B] bg-[#EBF1F6] px-2 py-0.5 rounded-[4px] text-[10px] border border-[#1F5F8B] font-bold uppercase tracking-wider">
-                          Active
-                        </span>
-                      )}
-                      {doctor.status === 'consulting' && (
-                        <span className="text-[#975A16] bg-[#FEF6E7] px-2 py-0.5 rounded-[4px] text-[10px] border border-[#F6E0B5] font-bold uppercase tracking-wider">
-                          Consulting
-                        </span>
-                      )}
-                      {doctor.status === 'completed' && (
-                        <span className="text-[#52606D] bg-[#F4F6F8] px-2 py-0.5 rounded-[4px] text-[10px] border border-[#CBD5E1] font-bold uppercase tracking-wider">
-                          Completed
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[13px] font-medium text-[#172B3A]">{doctor.specialization || doctor.title || 'Specialist'}</p>
-                    <p className="text-[12px] text-[#52606D] mt-0.5">{doctor.department || 'Specialty Care'}</p>
-                    <div className="mt-2 text-[12px] text-[#52606D]">
-                      <span className="font-semibold text-[#172B3A]">Hours:</span> {doctor.availability || 'Variable'}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Clinical Context */}
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 shrink-0 md:w-auto">
-                  <div className="space-y-1 min-w-[140px]">
-                    <div className="text-[12px] text-[#52606D]">
-                      <span className="font-bold uppercase mr-1">Last:</span>
-                      <span className="text-[#172B3A] font-medium">{doctor.lastVisit || 'N/A'}</span>
-                    </div>
-                    <div className="text-[12px] text-[#52606D]">
-                      <span className="font-bold uppercase mr-1">Next:</span>
-                      {doctor.nextVisit ? (
-                        <span className="text-[#1F5F8B] font-medium">{doctor.nextVisit}</span>
-                      ) : (
-                        <span className="text-[#52606D] italic">None</span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex gap-2 w-full sm:w-auto">
-                    <button className="flex-1 sm:flex-none text-[13px] font-medium text-[#52606D] bg-[#FFFFFF] border border-[#CBD5E1] px-3 py-1.5 rounded-[4px] hover:bg-[#F4F6F8] hover:text-[#172B3A] hover:border-[#52606D] transition-colors whitespace-nowrap">
-                      Profile
-                    </button>
-                    <button className="flex-1 sm:flex-none text-[13px] font-medium text-[#1F5F8B] bg-[#FFFFFF] border border-[#1F5F8B] px-3 py-1.5 rounded-[4px] hover:bg-[#EBF1F6] transition-colors whitespace-nowrap">
-                      Message
-                    </button>
-                  </div>
-                </div>
-
+              <p className="text-[12px] text-muted mt-2">{d.experience ? `${d.experience} yrs · ` : ''}Reg: {d.regNo || '—'}</p>
+              <div className="flex gap-2 mt-3">
+                <button onClick={() => setChatWith(d)} className="flex-1 flex items-center justify-center gap-1.5 text-[12px] font-medium text-primary border border-primary px-3 py-2 rounded-[4px] hover:bg-active transition-colors">
+                  <MessageSquare className="w-3.5 h-3.5" /> Message
+                </button>
+                {telLink(d.phone) && (
+                  <a href={telLink(d.phone)!} className="flex-1 flex items-center justify-center gap-1.5 text-[12px] font-medium text-ok border border-ok-bd px-3 py-2 rounded-[4px] hover:bg-ok-bg transition-colors">
+                    <Phone className="w-3.5 h-3.5" /> Call
+                  </a>
+                )}
+                {d.location && (
+                  <a href={`https://www.google.com/maps?q=${d.location.lat},${d.location.lng}`} target="_blank" rel="noreferrer" className="flex-1 flex items-center justify-center gap-1.5 text-[12px] font-medium text-muted border border-line px-3 py-2 rounded-[4px] hover:bg-app transition-colors">
+                    <MapPin className="w-3.5 h-3.5" /> Locate
+                  </a>
+                )}
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {/* Live map */}
+      <div className="bg-surface border border-line rounded-[4px] p-4 shadow-sm">
+        <h4 className="text-[11px] font-bold text-muted uppercase tracking-wider mb-3">🗺️ Live doctor locations ({onDuty.length} on duty) {locating && <Loader2 className="w-3 h-3 animate-spin inline" />}</h4>
+        <div ref={mapDiv} className="leaflet-map" />
+        <p className="text-[11px] text-muted mt-2">Doctors who are ON DUTY with fresh location appear here (updates every few minutes).</p>
       </div>
-      
+
+      {/* Chat modal */}
+      {chatWith && (
+        <Modal title={`Chat with Dr. ${chatWith.name}`} onClose={() => setChatWith(null)}>
+          <div className="flex flex-col gap-2 max-h-[380px] overflow-y-auto custom-scrollbar mb-3">
+            {msgs.length === 0 && <p className="text-[13px] text-muted text-center py-6">No messages yet — say hello 👋</p>}
+            {msgs.map((m) => (
+              <div key={m.id} className={`max-w-[75%] px-3 py-2 rounded-[8px] text-[13px] ${m.from === patientData.id ? 'self-end bg-primary text-on-navy' : 'self-start bg-app text-ink border border-line'}`}>
+                {m.text}
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Type a message…" className="flex-1 h-[40px] border border-line rounded-[4px] px-3 text-[13px] text-ink focus:outline-none focus:border-primary" />
+            <button onClick={send} className="h-[40px] px-4 bg-primary text-on-navy rounded-[6px] text-[13px] font-medium hover:bg-primary-d">Send</button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
+
+import { db as db2 } from '../firebase';

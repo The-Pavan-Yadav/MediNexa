@@ -1,280 +1,106 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Users, 
-  Clock, 
-  Activity, 
-  FileText, 
-  Search, 
-  CheckCircle2, 
-  AlertCircle,
-  Plus,
-  ArrowRight,
-  UserPlus
-} from 'lucide-react';
-import { db, auth } from '../../firebase';
-import { collection, query, where, getDocs, doc, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
+import { useEffect, useState } from 'react';
+import { FileText, Pill, Users, CalendarCheck, Bell, ArrowRight, Loader2 } from 'lucide-react';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db } from '../../firebase';
+import type { MhdUser, CaseDoc, Appointment, Medicine, Notif } from '../../lib/types';
+import { t } from '../../lib/i18n';
+import { greetKey } from '../../lib/format';
+import { todayStr, fmtD, queueNumberOf } from '../../lib/format';
+import { PageHeader } from '../common';
 
-export default function DoctorHomeTab({ doctorData, setActiveTab }: { doctorData: any, setActiveTab?: any }) {
-  const [patientIdInput, setPatientIdInput] = useState('');
-  const [addPatientStatus, setAddPatientStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error', msg: string }>({ type: 'idle', msg: '' });
-  const [recentPatients, setRecentPatients] = useState<any[]>([]);
-
-  // We could fetch the doctor's actual patients array here for display
-  const [stats, setStats] = useState({ waitingCases: 0, urgent: 0, patientsToday: 0, completedToday: 0, totalPatients: 0 });
-  const [todayAppts, setTodayAppts] = useState<any[]>([]);
-  const [awaitingReview, setAwaitingReview] = useState<any[]>([]);
+export default function DoctorHomeTab({ doctorData, go }: { doctorData: MhdUser; go?: (tab: string) => void }) {
+  const [cases, setCases] = useState<CaseDoc[]>([]);
+  const [appts, setAppts] = useState<Appointment[] | null>(null);
+  const [meds, setMeds] = useState<Medicine[]>([]);
+  const [notifs, setNotifs] = useState<Notif[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      if (!auth.currentUser) return;
-      
-      const totalPatients = doctorData?.patientIds?.length || 0;
-      
-      // Fetch cases
-      const casesQ = query(collection(db, 'cases'), where('assignedDoctorId', '==', auth.currentUser.uid));
-      const casesSnap = await getDocs(casesQ);
-      let waiting = 0;
-      let urgent = 0;
-      const reviews: any[] = [];
-      casesSnap.forEach(d => {
-        const c = d.data();
-        if (c.status === 'Waiting') {
-           waiting++;
-           if (c.priority === 'High') urgent++;
-           reviews.push({ name: c.patientName, id: c.patientMhdId, reason: c.symptoms || 'Awaiting Review' });
-        }
-      });
-      setAwaitingReview(reviews.slice(0, 5));
+    const us: (() => void)[] = [];
+    us.push(onSnapshot(query(collection(db, 'cases'), where('status', '==', 'waiting')), (s) => { setCases(s.docs.map((d) => ({ id: d.id, ...d.data() } as CaseDoc))); setLoading(false); }, () => setLoading(false)));
+    us.push(onSnapshot(query(collection(db, 'appointments'), where('doctorId', '==', doctorData.id)), (s) => setAppts(s.docs.map((d) => ({ id: d.id, ...d.data() } as Appointment)))));
+    us.push(onSnapshot(query(collection(db, 'medicines'), where('verified', '==', false)), (s) => setMeds(s.docs.map((d) => ({ id: d.id, ...d.data() } as Medicine)))));
+    us.push(onSnapshot(query(collection(db, 'notifications'), where('to', '==', doctorData.id)), (s) => setNotifs(s.docs.map((d) => ({ id: d.id, ...d.data() } as Notif)))));
+    return () => us.forEach((u) => u());
+  }, [doctorData.id]);
 
-      // Fetch appointments
-      const today = new Date().toISOString().split('T')[0];
-      const apptQ = query(collection(db, 'appointments'), where('doctorId', '==', auth.currentUser.uid), where('date', '==', today));
-      const apptSnap = await getDocs(apptQ);
-      
-      let pToday = 0;
-      let cToday = 0;
-      const appts: any[] = [];
-      apptSnap.forEach(d => {
-        pToday++;
-        const a = d.data();
-        if (a.status === 'Completed') cToday++;
-        appts.push(a);
-      });
-      setTodayAppts(appts);
-      
-      setStats({
-        waitingCases: waiting,
-        urgent,
-        patientsToday: pToday,
-        completedToday: cToday,
-        totalPatients
-      });
-    };
-    fetchDashboardData();
-  }, [doctorData]);
+  if (loading || appts === null) return <div className="max-w-[1200px] mx-auto"><div className="bg-surface border border-line rounded-[4px] p-10 text-center"><Loader2 className="w-6 h-6 animate-spin text-muted mx-auto" /></div></div>;
 
-  const handleAddPatient = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!patientIdInput.trim()) return;
-    
-    setAddPatientStatus({ type: 'loading', msg: 'Verifying Patient ID...' });
-    
-    try {
-      // Find patient by MHD ID
-      const q = query(collection(db, 'users'), where('role', '==', 'patient'), where('mhdId', '==', patientIdInput.trim().toUpperCase()));
-      const querySnapshot = await getDocs(q);
-      
-      if (querySnapshot.empty) {
-        setAddPatientStatus({ type: 'error', msg: 'Patient ID not found.' });
-        return;
-      }
-
-      const patientDoc = querySnapshot.docs[0];
-      
-      if (!auth.currentUser) throw new Error("Not authenticated");
-      const doctorRef = doc(db, 'users', auth.currentUser.uid);
-      
-      await updateDoc(doctorRef, {
-        patientIds: arrayUnion(patientDoc.id)
-      });
-      
-      setAddPatientStatus({ type: 'success', msg: `Successfully added ${patientDoc.data().name} to your roster.` });
-      setPatientIdInput('');
-      
-      setTimeout(() => {
-        setAddPatientStatus({ type: 'idle', msg: '' });
-      }, 3000);
-      
-    } catch (err: any) {
-      console.error(err);
-      setAddPatientStatus({ type: 'error', msg: 'Failed to add patient.' });
-    }
-  };
+  const today = todayStr();
+  const todays = appts.filter((a) => a.date === today && a.status === 'upcoming').sort((a, b) => a.time.localeCompare(b.time));
+  const stats: [string, number, typeof FileText, string][] = [
+    ['Waiting cases', cases.length, FileText, t('cases')],
+    ['Today\u2019s patients', todays.length, CalendarCheck, t('dappts')],
+    ['Medicines to verify', meds.length, Pill, t('verify')],
+    ['Unread', notifs.filter((n) => !n.read).length, Bell, t('notifs')],
+  ];
 
   return (
-    <div className="max-w-[1200px] mx-auto space-y-6 animate-in fade-in duration-200">
-      
-      {/* Top Section: Profile & Quick Add */}
-      <div className="flex flex-col md:flex-row gap-6">
-        {/* Doctor Profile Summary */}
-        <div className="flex-1 bg-[#102A43] border border-[#102A43] rounded-[4px] p-6 text-white flex justify-between items-center">
-          <div>
-            <h2 className="text-[24px] font-bold mb-1">
-              {doctorData?.name ? `Dr. ${doctorData.name}` : 'Welcome, Doctor'}
-            </h2>
-            <p className="text-[14px] text-[#CBD5E1] mb-4">
-              {doctorData?.specialization || 'General Medicine'} • {doctorData?.mhdId || 'D-XXX'}
-            </p>
-            <div className="flex gap-4">
-              <div className="bg-[#173F5F] px-3 py-1.5 rounded-[4px] border border-[#1F5F8B]">
-                <p className="text-[10px] text-[#CBD5E1] uppercase tracking-wider font-semibold">Shift Status</p>
-                <p className="text-[13px] font-bold text-[#48BB78]">On Duty</p>
-              </div>
-              <div className="bg-[#173F5F] px-3 py-1.5 rounded-[4px] border border-[#1F5F8B]">
-                <p className="text-[10px] text-[#CBD5E1] uppercase tracking-wider font-semibold">Location</p>
-                <p className="text-[13px] font-bold text-white">Main Wing, Fl 3</p>
-              </div>
+    <div className="max-w-[1200px] mx-auto space-y-6 pb-12">
+      <PageHeader title={`${t(greetKey())}, Dr. ${doctorData.name} 👋`} sub={`${doctorData.specialization || 'General'} · ${doctorData.hospital || 'MHD Hospital'} · Reg ${doctorData.regNo || '—'}`} />
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {stats.map(([label, val, Icon, nav]) => (
+          <button key={label} onClick={() => go?.(nav)} className="bg-surface border border-line rounded-[4px] p-4 text-left shadow-sm hover:border-primary transition-colors">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold text-muted uppercase tracking-wider">{label}</span>
+              <Icon className="w-4 h-4 text-primary" strokeWidth={1.5} />
             </div>
-          </div>
-        </div>
-
-        {/* Add Patient Widget */}
-        <div className="w-full md:w-[350px] bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-5 shrink-0 flex flex-col justify-center">
-          <div className="flex items-center gap-2 mb-3">
-            <UserPlus className="w-5 h-5 text-[#102A43]" />
-            <h3 className="text-[14px] font-semibold text-[#172B3A]">Add Patient to Roster</h3>
-          </div>
-          <form onSubmit={handleAddPatient} className="flex gap-2">
-            <input 
-              type="text" 
-              value={patientIdInput}
-              onChange={(e) => setPatientIdInput(e.target.value)}
-              placeholder="e.g. P-001" 
-              className="flex-1 bg-[#F4F6F8] border border-[#CBD5E1] rounded-[4px] px-3 py-2 text-[13px] text-[#172B3A] focus:outline-none focus:border-[#1F5F8B]"
-            />
-            <button 
-              type="submit"
-              disabled={addPatientStatus.type === 'loading'}
-              className="bg-[#1F5F8B] text-white px-4 py-2 rounded-[4px] text-[13px] font-medium hover:bg-[#173F5F] transition-colors border border-[#1F5F8B] disabled:opacity-70"
-            >
-              Add
-            </button>
-          </form>
-          {addPatientStatus.msg && (
-            <p className={`text-[12px] mt-2 font-medium ${addPatientStatus.type === 'success' ? 'text-[#276749]' : addPatientStatus.type === 'error' ? 'text-[#B42318]' : 'text-[#52606D]'}`}>
-              {addPatientStatus.msg}
-            </p>
-          )}
-        </div>
+            <p className="text-[28px] font-bold leading-none text-heading">{val}</p>
+          </button>
+        ))}
       </div>
 
-      {/* KPI Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-5 flex flex-col">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[12px] font-bold text-[#52606D] uppercase tracking-wider">Waiting Cases</p>
-            <Clock className="w-4 h-4 text-[#975A16]" />
+      <div className="grid lg:grid-cols-2 gap-5">
+        <div className="bg-surface border border-line rounded-[4px] shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-line bg-stripe">
+            <h4 className="text-[11px] font-bold text-muted uppercase tracking-wider">🟡 Waiting cases ({cases.length})</h4>
+            {go && <button onClick={() => go(t('cases'))} className="text-[11px] font-bold text-primary uppercase">Open →</button>}
           </div>
-          <p className="text-[28px] font-bold text-[#172B3A] leading-none mb-1">{stats.waitingCases}</p>
-          <p className="text-[11px] text-[#52606D]">{stats.urgent} urgent requests</p>
-        </div>
-        <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-5 flex flex-col">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[12px] font-bold text-[#52606D] uppercase tracking-wider">Patients Today</p>
-            <Users className="w-4 h-4 text-[#1F5F8B]" />
-          </div>
-          <p className="text-[28px] font-bold text-[#172B3A] leading-none mb-1">{stats.patientsToday}</p>
-          <p className="text-[11px] text-[#52606D]">{stats.completedToday} completed, {stats.patientsToday - stats.completedToday} upcoming</p>
-        </div>
-        <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-5 flex flex-col">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[12px] font-bold text-[#52606D] uppercase tracking-wider">Total Patients</p>
-            <Activity className="w-4 h-4 text-[#276749]" />
-          </div>
-          <p className="text-[28px] font-bold text-[#172B3A] leading-none mb-1">{stats.totalPatients}</p>
-          <p className="text-[11px] text-[#52606D]">Active on your roster</p>
-        </div>
-        <div className="bg-[#FFFFFF] border border-[#FCA5A5] rounded-[4px] p-5 flex flex-col">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[12px] font-bold text-[#B42318] uppercase tracking-wider">Pending Meds</p>
-            <FileText className="w-4 h-4 text-[#B42318]" />
-          </div>
-          <p className="text-[28px] font-bold text-[#B42318] leading-none mb-1">0</p>
-          <p className="text-[11px] text-[#B42318]">Verifications required</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Today's Schedule */}
-        <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] overflow-hidden">
-          <div className="bg-[#F9FAFB] border-b border-[#CBD5E1] p-4 flex items-center justify-between">
-            <h3 className="text-[15px] font-semibold text-[#172B3A]">Today's Schedule</h3>
-            <button onClick={() => setActiveTab && setActiveTab('Appointments')} className="text-[12px] font-medium text-[#1F5F8B] hover:underline">View Calendar</button>
-          </div>
-          <div className="divide-y divide-[#CBD5E1]">
-            {todayAppts.length === 0 ? (
-               <div className="p-8 text-center text-[13px] text-[#52606D]">No appointments today.</div>
-            ) : todayAppts.map((apt, i) => (
-              <div key={i} className="p-4 flex items-center gap-4 hover:bg-[#F9FAFB] transition-colors">
-                <div className="w-[80px] shrink-0">
-                  <p className="text-[13px] font-bold text-[#172B3A]">{apt.time}</p>
-                </div>
-                <div className="flex-1">
-                  <p className="text-[14px] font-semibold text-[#172B3A]">{apt.patientName} <span className="text-[12px] font-normal text-[#52606D] ml-1">({apt.patientMhdId})</span></p>
-                  <p className="text-[12px] text-[#52606D]">{apt.type}</p>
-                </div>
-                <div>
-                  <span className={`text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-[4px] border ${
-                    apt.status === 'Completed' ? 'bg-[#E8F2EC] text-[#276749] border-[#BCE3C6]' :
-                    apt.status === 'Confirmed' ? 'bg-[#EBF1F6] text-[#1F5F8B] border-[#90CDF4]' :
-                    apt.status === 'Scheduled' ? 'bg-[#FEF6E7] text-[#975A16] border-[#F6E0B5]' :
-                    'bg-[#F4F6F8] text-[#52606D] border-[#CBD5E1]'
-                  }`}>
-                    {apt.status}
-                  </span>
-                </div>
-              </div>
+          <div className="divide-y divide-line max-h-[340px] overflow-y-auto custom-scrollbar">
+            {cases.length === 0 && <p className="p-6 text-[13px] text-muted text-center">No waiting cases. 🎉</p>}
+            {cases.sort((a, b) => b.createdAt - a.createdAt).map((c) => (
+              <button key={c.id} onClick={() => go?.(t('cases'))} className="w-full text-left px-4 py-3 hover:bg-stripe transition-colors">
+                <p className="text-[13px] font-semibold text-ink">{c.patientName} <span className="text-muted font-normal font-mono text-[11px]">{c.healthId}</span></p>
+                <p className="text-[12px] text-muted mt-0.5">{c.chiefComplaint}</p>
+                <p className="text-[11px] text-muted mt-1">{c.severity} · {fmtD(new Date(c.createdAt).toISOString().slice(0, 10))}</p>
+              </button>
             ))}
           </div>
         </div>
 
-        <div className="space-y-6">
-          {/* Clinical Alerts */}
-          <div className="bg-[#FFFFFF] border border-[#FCA5A5] rounded-[4px] overflow-hidden">
-            <div className="bg-[#FEF2F2] border-b border-[#FCA5A5] p-4 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-[#B42318]" />
-              <h3 className="text-[15px] font-semibold text-[#B42318]">Critical Alerts</h3>
-            </div>
-            <div className="p-4 space-y-3">
-              <div className="p-8 text-center text-[13px] text-[#52606D]">No critical alerts at this time.</div>
-            </div>
+        <div className="bg-surface border border-line rounded-[4px] shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-line bg-stripe">
+            <h4 className="text-[11px] font-bold text-muted uppercase tracking-wider">📅 Today&apos;s schedule ({todays.length})</h4>
+            {go && <button onClick={() => go(t('dappts'))} className="text-[11px] font-bold text-primary uppercase">All →</button>}
           </div>
-
-          {/* Patients Awaiting Review */}
-          <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] overflow-hidden">
-            <div className="bg-[#F9FAFB] border-b border-[#CBD5E1] p-4 flex items-center justify-between">
-              <h3 className="text-[15px] font-semibold text-[#172B3A]">Awaiting Review</h3>
-            </div>
-            <div className="divide-y divide-[#CBD5E1]">
-              {awaitingReview.length === 0 ? (
-                <div className="p-8 text-center text-[13px] text-[#52606D]">No patients awaiting review.</div>
-              ) : awaitingReview.map((patient, i) => (
-                <div key={i} className="p-4 flex items-center justify-between hover:bg-[#F9FAFB] transition-colors">
-                  <div>
-                    <p className="text-[13px] font-semibold text-[#172B3A]">{patient.name} <span className="text-[#52606D] font-normal">({patient.id})</span></p>
-                    <p className="text-[12px] text-[#52606D] mt-0.5">{patient.reason}</p>
-                  </div>
-                  <button onClick={() => setActiveTab && setActiveTab('Cases')} className="w-8 h-8 rounded-[4px] bg-[#FFFFFF] border border-[#CBD5E1] flex items-center justify-center text-[#52606D] hover:text-[#1F5F8B] hover:border-[#1F5F8B] transition-colors">
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
+          <div className="divide-y divide-line max-h-[340px] overflow-y-auto custom-scrollbar">
+            {todays.length === 0 && <p className="p-6 text-[13px] text-muted text-center">No appointments today.</p>}
+            {todays.map((a) => (
+              <div key={a.id} className="flex items-center justify-between px-4 py-3">
+                <div>
+                  <p className="text-[13px] font-semibold text-ink">{a.patientName}</p>
+                  <p className="text-[12px] text-muted">{a.time} · {a.type}</p>
                 </div>
-              ))}
-            </div>
+                <span className="text-[11px] font-bold text-primary border border-primary rounded-[4px] px-2 py-0.5">🎟️ #{queueNumberOf(appts, a)}</span>
+              </div>
+            ))}
           </div>
         </div>
-
       </div>
+
+      {meds.length > 0 && (
+        <button onClick={() => go?.(t('verify'))} className="w-full flex items-center justify-between bg-surface border-l-4 border-primary border-y border-r border-y-line border-r-line rounded-[4px] p-5 shadow-sm hover:opacity-95 transition-opacity">
+          <div className="flex items-center gap-3">
+            <Pill className="w-5 h-5 text-primary" strokeWidth={1.5} />
+            <div className="text-left">
+              <p className="text-[14px] font-medium text-ink">{meds.length} medicine{meds.length > 1 ? 's' : ''} waiting for your verification</p>
+              <p className="text-[12px] text-muted">Self-reported medicines need a doctor&apos;s confirmation.</p>
+            </div>
+          </div>
+          <ArrowRight className="w-5 h-5 text-primary" />
+        </button>
+      )}
     </div>
   );
 }

@@ -1,23 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  LayoutDashboard, 
-  Activity, 
-  Users, 
-  Calendar, 
-  FileText, 
-  MessageSquare,
-  DollarSign,
-  Settings,
-  LogOut,
-  Bell,
-  Search,
-  UserCircle,
-  Stethoscope
+import { useEffect, useRef, useState } from 'react';
+import {
+  LayoutDashboard, Activity, FileText, Pill, MessageSquare, DollarSign,
+  LogOut, Bell, UserCircle, Settings, Search, Loader2, Users, CalendarCheck,
 } from 'lucide-react';
 import { auth, db } from './firebase';
-import { doc, getDoc, collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, deleteField } from 'firebase/firestore';
+import { signOut } from 'firebase/auth';
+import type { MhdUser } from './lib/types';
+import { t, LANG_EVENT } from './lib/i18n';
+import { LangSelect, ThemeSelect } from './components/Controls';
+import { Logo } from './PatientDashboard';
 
-// Tab imports
 import DoctorHomeTab from './tabs/doctor/DoctorHomeTab';
 import HealthInputTab from './tabs/doctor/HealthInputTab';
 import CasesTab from './tabs/doctor/CasesTab';
@@ -25,182 +18,155 @@ import PatientsTab from './tabs/doctor/PatientsTab';
 import AppointmentsTab from './tabs/doctor/AppointmentsTab';
 import MessagesTab from './tabs/doctor/MessagesTab';
 import EarningsTab from './tabs/doctor/EarningsTab';
-import SettingsTab from './tabs/doctor/SettingsTab';
+import VerifyTab from './tabs/doctor/VerifyTab';
+import NotificationsTab from './tabs/shared/NotificationsTab';
+import SettingsTab from './tabs/shared/SettingsTab';
 
-interface DoctorDashboardProps {
-  onLogout: () => void;
-}
-
-const Logo = ({ className = "w-8 h-8" }) => (
-  <svg className={className} viewBox="0 0 32 32" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-    <path d="M16 0L30 8V24L16 32L2 24V8L16 0ZM16 4.6L6 10.4V21.6L16 27.4L26 21.6V10.4L16 4.6Z" />
-    <rect x="12" y="12" width="8" height="8" />
-  </svg>
-);
-
-export default function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
-  const [activeTab, setActiveTab] = useState('Dashboard');
-  const [doctorData, setDoctorData] = useState<any>(null);
-  const [globalSearchQuery, setGlobalSearchQuery] = useState('');
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState<any[]>([]);
+export default function DoctorDashboard({ onLogout }: { onLogout: () => void }) {
+  const [me, setMe] = useState<MhdUser | null>(null);
+  const [activeTab, setActiveTab] = useState(t('dashboard'));
+  const [, force] = useState(0);
+  const watchRef = useRef<number | null>(null);
+  const lastSendRef = useRef(0);
 
   useEffect(() => {
-    const fetchNotifs = async () => {
-      if (!auth.currentUser) return;
-      try {
-        const q = query(collection(db, 'notifications'), where('userId', '==', auth.currentUser.uid));
-        const snap = await getDocs(q);
-        const notifs: any[] = [];
-        snap.forEach(d => notifs.push({ id: d.id, ...d.data() }));
-        setNotifications(notifs);
-      } catch (e) {
-        console.error(e);
-      }
-    };
-    fetchNotifs();
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    const unsub = onSnapshot(doc(db, 'users', uid), (snap) => {
+      if (snap.exists()) setMe({ id: snap.id, ...snap.data() } as MhdUser);
+    });
+    const onLang = () => force((v) => v + 1);
+    window.addEventListener(LANG_EVENT, onLang);
+    return () => { unsub(); window.removeEventListener(LANG_EVENT, onLang); };
   }, []);
 
+  /* Duty + live location (GPS throttled to 1 write / 20s, like the original) */
   useEffect(() => {
-    const fetchUserData = async () => {
-      if (auth.currentUser) {
-        const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-        if (userDoc.exists()) {
-          setDoctorData(userDoc.data());
-        }
-      }
-    };
-    fetchUserData();
-  }, []);
+    if (me?.onDuty && 'geolocation' in navigator) {
+      watchRef.current = navigator.geolocation.watchPosition((pos) => {
+        const now = Date.now();
+        if (now - lastSendRef.current < 20000) return;
+        lastSendRef.current = now;
+        updateDoc(doc(db, 'users', me.id), {
+          location: { lat: pos.coords.latitude, lng: pos.coords.longitude, updatedAt: now },
+        }).catch(() => { /* ignore */ });
+      }, () => { /* ignore denied */ }, { enableHighAccuracy: true });
+    } else if (watchRef.current != null) {
+      navigator.geolocation.clearWatch(watchRef.current);
+      watchRef.current = null;
+    }
+    return () => { if (watchRef.current != null) navigator.geolocation.clearWatch(watchRef.current); };
+  }, [me?.onDuty, me?.id]);
 
-  const NavItem = ({ icon: Icon, label, active, onClick, danger }: any) => (
-    <button
-      onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-[4px] text-[13px] font-medium transition-colors ${
-        active
-          ? 'bg-[#EBF1F6] text-[#1F5F8B]'
-          : danger
-          ? 'text-[#B42318] hover:bg-[#FEF2F2]'
-          : 'text-[#52606D] hover:bg-[#F4F6F8] hover:text-[#172B3A]'
-      }`}
-    >
-      <Icon className={`w-5 h-5 ${active ? 'text-[#1F5F8B]' : danger ? 'text-[#B42318]' : 'text-[#52606D]'}`} strokeWidth={1.5} />
-      {label}
-    </button>
-  );
+  const setDuty = async (on: boolean) => {
+    if (!me) return;
+    try {
+      if (on) await updateDoc(doc(db, 'users', me.id), { onDuty: true });
+      else await updateDoc(doc(db, 'users', me.id), { onDuty: false, location: deleteField() });
+    } catch { /* ignore */ }
+  };
 
-  const SectionHeading = ({ children }: { children: React.ReactNode }) => (
-    <h4 className="text-[11px] font-semibold text-[#52606D] uppercase tracking-wider mb-2 mt-6 px-4">
-      {children}
-    </h4>
-  );
+  const doLogout = async () => {
+    if (me) { try { await updateDoc(doc(db, 'users', me.id), { onDuty: false, location: deleteField() }); } catch { /* ignore */ } }
+    try { await signOut(auth); } catch { /* ignore */ }
+    onLogout();
+  };
+
+  const NAV: [string, typeof LayoutDashboard][] = [
+    [t('dashboard'), LayoutDashboard],
+    [t('healthinput'), Activity],
+    [t('cases'), FileText],
+    [t('verify'), Pill],
+    [t('chats'), MessageSquare],
+    [t('patients'), Users],
+    [t('dappts'), CalendarCheck],
+    [t('earnings'), DollarSign],
+    [t('notifs'), Bell],
+    [t('settings'), Settings],
+  ];
+
+  if (!me) {
+    return <div className="h-screen bg-app flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+  }
 
   return (
-    <div className="flex h-screen bg-[#F4F6F8] font-sans text-[#172B3A]">
-      {/* SIDEBAR */}
-      <aside className="w-[260px] bg-[#FFFFFF] border-r border-[#CBD5E1] flex flex-col h-full shrink-0">
-        {/* Logo Area */}
-        <div className="h-[64px] flex items-center gap-3 px-6 border-b border-[#CBD5E1]">
-          <Logo className="w-8 h-8 text-[#102A43]" />
+    <div className="flex h-screen bg-app font-sans text-ink">
+      <aside className="w-[260px] bg-surface border-r border-line flex flex-col h-full shrink-0">
+        <div className="h-[64px] flex items-center gap-3 px-6 border-b border-line">
+          <Logo />
           <div>
-            <h1 className="text-[16px] font-bold tracking-wide leading-none text-[#102A43]">MHD HOSPITAL</h1>
-            <p className="text-[9px] text-[#52606D] uppercase tracking-wider font-semibold">Doctor Portal</p>
+            <h1 className="text-[16px] font-bold tracking-wide leading-none text-heading">MHD HOSPITAL</h1>
+            <p className="text-[10px] text-muted uppercase tracking-wider font-semibold mt-0.5">Doctor Portal</p>
           </div>
         </div>
-
-        {/* Navigation */}
         <div className="flex-1 overflow-y-auto px-3 py-4 custom-scrollbar">
-          <SectionHeading>Workspace</SectionHeading>
-          <NavItem icon={LayoutDashboard} label="Dashboard" active={activeTab === 'Dashboard'} onClick={() => setActiveTab('Dashboard')} />
-          <NavItem icon={Activity} label="Health Input" active={activeTab === 'Health Input'} onClick={() => setActiveTab('Health Input')} />
-          
-          <SectionHeading>Clinical</SectionHeading>
-          <NavItem icon={FileText} label="Cases" active={activeTab === 'Cases'} onClick={() => setActiveTab('Cases')} />
-          <NavItem icon={Users} label="Patients" active={activeTab === 'Patients'} onClick={() => setActiveTab('Patients')} />
-          <NavItem icon={Calendar} label="Appointments" active={activeTab === 'Appointments'} onClick={() => setActiveTab('Appointments')} />
-          
-          <SectionHeading>Office</SectionHeading>
-          <NavItem icon={MessageSquare} label="Messages" active={activeTab === 'Messages'} onClick={() => setActiveTab('Messages')} />
-          <NavItem icon={DollarSign} label="Earnings" active={activeTab === 'Earnings'} onClick={() => setActiveTab('Earnings')} />
-          <NavItem icon={Settings} label="Settings" active={activeTab === 'Settings'} onClick={() => setActiveTab('Settings')} />
+          {NAV.map(([label, Icon]) => (
+            <button
+              key={label}
+              onClick={() => setActiveTab(label)}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-[4px] text-[13px] font-medium transition-colors mb-0.5 ${
+                activeTab === label ? 'bg-active text-primary' : 'text-muted hover:bg-app hover:text-ink'
+              }`}
+            >
+              <Icon className="w-4 h-4" strokeWidth={1.5} /> {label}
+            </button>
+          ))}
+          <div className={`mt-4 mx-1 p-3 rounded-[4px] border ${me.onDuty ? 'border-ok-bd bg-ok-bg' : 'border-line bg-app'}`}>
+            <div className="flex items-center justify-between mb-2">
+              <span className={`text-[12px] font-bold ${me.onDuty ? 'text-ok' : 'text-muted'}`}>{me.onDuty ? '🟢 ON DUTY' : '⚫ OFF DUTY'}</span>
+            </div>
+            <button
+              onClick={() => setDuty(!me.onDuty)}
+              className={`w-full h-[32px] rounded-[4px] text-[12px] font-medium transition-colors ${me.onDuty ? 'bg-ok text-white hover:opacity-90' : 'bg-primary text-on-navy hover:bg-primary-d'}`}
+            >
+              {me.onDuty ? 'Go Off Duty' : 'Go On Duty'}
+            </button>
+            <p className="text-[10px] text-muted mt-1.5 leading-snug">Shares live location with patients while on duty.</p>
+          </div>
         </div>
-
-        {/* Footer Actions */}
-        <div className="p-4 border-t border-[#CBD5E1] space-y-1">
-          <NavItem icon={LogOut} label="Logout" onClick={onLogout} />
+        <div className="p-4 border-t border-line space-y-1">
+          <div className="flex items-center gap-3 mb-2">
+            {me.photo ? (
+              <img src={me.photo} alt="" className="w-9 h-9 rounded-full object-cover" />
+            ) : (
+              <div className="w-9 h-9 rounded-full bg-active flex items-center justify-center"><UserCircle className="w-5 h-5 text-primary" strokeWidth={1.5} /></div>
+            )}
+            <div className="min-w-0">
+              <p className="text-[13px] font-semibold text-ink truncate">Dr. {me.name}</p>
+              <p className="text-[11px] text-muted truncate">{me.specialization}</p>
+            </div>
+          </div>
+          <button onClick={doLogout} className="w-full flex items-center gap-3 px-4 py-2.5 rounded-[4px] text-[13px] font-medium text-danger hover:bg-danger-bg transition-colors">
+            <LogOut className="w-4 h-4" strokeWidth={1.5} /> {t('logout')}
+          </button>
         </div>
       </aside>
 
-      {/* MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Top Header */}
-        <header className="h-[64px] bg-[#FFFFFF] border-b border-[#CBD5E1] flex items-center justify-between px-8 shrink-0">
-          <div className="flex items-center bg-[#F4F6F8] border border-[#CBD5E1] rounded-[4px] px-3 py-1.5 w-[300px]">
-            <Search className="w-4 h-4 text-[#52606D] mr-2" strokeWidth={1.5} />
-            <input 
-              type="text" 
-              placeholder="Search patients, ID, cases..." 
-              className="bg-transparent border-none outline-none text-[13px] text-[#172B3A] w-full placeholder:text-[#52606D]"
-            />
+        <header className="h-[64px] bg-surface border-b border-line flex items-center justify-between px-8 shrink-0">
+          <div className="relative w-[300px] hidden md:block">
+            <Search className="absolute left-3 top-2.5 w-4 h-4 text-muted" />
+            <input placeholder="Search..." className="w-full h-[36px] bg-app border border-line rounded-[4px] pl-9 pr-3 text-[13px] text-ink focus:outline-none focus:border-primary" />
           </div>
-          <div className="flex items-center gap-5">
-            <div className="relative">
-              <button onClick={() => setShowNotifications(!showNotifications)} className="relative text-[#52606D] hover:text-[#102A43] transition-colors">
-                <Bell className="w-5 h-5" strokeWidth={1.5} />
-                {notifications.length > 0 && <span className="absolute -top-1 -right-1 w-2 h-2 bg-[#B42318] rounded-full"></span>}
-              </button>
-              {showNotifications && (
-                <div className="absolute right-0 mt-2 w-64 bg-white border border-[#CBD5E1] rounded-[4px] shadow-lg z-50 overflow-hidden">
-                  <div className="p-3 border-b border-[#CBD5E1] bg-[#F4F6F8]">
-                    <h3 className="text-[13px] font-semibold text-[#172B3A]">Notifications</h3>
-                  </div>
-                  <div className="max-h-64 overflow-y-auto">
-                    {notifications.length === 0 ? (
-                      <p className="p-4 text-[12px] text-[#52606D] text-center">No new notifications.</p>
-                    ) : (
-                      notifications.map(n => (
-                        <div key={n.id} className="p-3 border-b border-[#CBD5E1] hover:bg-[#F9FAFB]">
-                          <p className="text-[12px] font-medium text-[#172B3A]">{n.title}</p>
-                          <p className="text-[11px] text-[#52606D]">{n.message}</p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="h-6 w-px bg-[#CBD5E1]"></div>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-[#EBF1F6] flex items-center justify-center">
-                <Stethoscope className="w-5 h-5 text-[#1F5F8B]" />
-              </div>
-              <div className="text-left hidden md:block">
-                <p className="text-[13px] font-semibold text-[#172B3A] leading-tight">
-                  {doctorData?.name ? `Dr. ${doctorData.name}` : 'Doctor Profile'}
-                </p>
-                <p className="text-[11px] text-[#52606D]">ID: {doctorData?.mhdId || 'D-PENDING'}</p>
-              </div>
-            </div>
+          <div className="flex items-center gap-3">
+            <LangSelect />
+            <ThemeSelect />
+            <button onClick={() => setActiveTab(t('notifs'))} title="Notifications" className="relative p-2 rounded-[4px] text-muted hover:bg-app hover:text-ink transition-colors">
+              <Bell className="w-5 h-5" strokeWidth={1.5} />
+            </button>
           </div>
         </header>
-
-        {/* Main View Area */}
-        <main className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-          {activeTab === 'Dashboard' && <DoctorHomeTab doctorData={doctorData} setActiveTab={setActiveTab} />}
-          {activeTab === 'Health Input' && <HealthInputTab doctorData={doctorData} setActiveTab={setActiveTab} globalSearchQuery={globalSearchQuery} setGlobalSearchQuery={setGlobalSearchQuery} />}
-          {activeTab === 'Cases' && <CasesTab doctorData={doctorData} setActiveTab={setActiveTab} globalSearchQuery={globalSearchQuery} setGlobalSearchQuery={setGlobalSearchQuery} />}
-          {activeTab === 'Patients' && <PatientsTab doctorData={doctorData} setActiveTab={setActiveTab} globalSearchQuery={globalSearchQuery} setGlobalSearchQuery={setGlobalSearchQuery} />}
-          {activeTab === 'Appointments' && <AppointmentsTab doctorData={doctorData} setActiveTab={setActiveTab} />}
-          {activeTab === 'Messages' && <MessagesTab doctorData={doctorData} setActiveTab={setActiveTab} />}
-          {activeTab === 'Earnings' && <EarningsTab doctorData={doctorData} setActiveTab={setActiveTab} />}
-          {activeTab === 'Settings' && <SettingsTab doctorData={doctorData} setActiveTab={setActiveTab} />}
-
-          {activeTab !== 'Dashboard' && activeTab !== 'Health Input' && activeTab !== 'Cases' && activeTab !== 'Patients' && activeTab !== 'Appointments' && activeTab !== 'Messages' && activeTab !== 'Earnings' && activeTab !== 'Settings' && (
-            <div className="flex flex-col items-center justify-center h-full text-center p-8 animate-in fade-in duration-200">
-              <h2 className="text-[20px] font-semibold text-[#172B3A] mb-2">{activeTab}</h2>
-              <p className="text-[14px] text-[#52606D]">This module is currently being provisioned.</p>
-            </div>
-          )}
+        <main className="flex-1 overflow-y-auto p-8 custom-scrollbar animate-in fade-in duration-200">
+          {activeTab === t('dashboard') && <DoctorHomeTab doctorData={me} go={setActiveTab} />}
+          {activeTab === t('healthinput') && <HealthInputTab doctorData={me} />}
+          {activeTab === t('cases') && <CasesTab doctorData={me} />}
+          {activeTab === t('verify') && <VerifyTab doctorData={me} />}
+          {activeTab === t('chats') && <MessagesTab doctorData={me} />}
+          {activeTab === t('patients') && <PatientsTab doctorData={me} />}
+          {activeTab === t('dappts') && <AppointmentsTab doctorData={me} />}
+          {activeTab === t('earnings') && <EarningsTab doctorData={me} />}
+          {activeTab === t('notifs') && <NotificationsTab />}
+          {activeTab === t('settings') && <SettingsTab me={me} onSaved={setMe} />}
         </main>
       </div>
     </div>

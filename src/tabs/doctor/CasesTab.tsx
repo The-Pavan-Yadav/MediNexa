@@ -1,459 +1,240 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Search, 
-  Filter, 
-  ArrowLeft,
-  Clock, 
-  AlertCircle, 
-  CheckCircle2, 
-  FileText, 
-  Activity, 
-  Pill, 
-  Calendar,
-  Save,
-  Loader2,
-  ChevronRight,
-  UserCircle
-} from 'lucide-react';
-import { db, auth } from '../../firebase';
-import { collection, query, getDocs, doc, updateDoc, serverTimestamp, addDoc, orderBy } from 'firebase/firestore';
+import { useEffect, useState } from 'react';
+import { FileText, Loader2, Plus, Trash2, ShieldBan } from 'lucide-react';
+import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, where, updateDoc } from 'firebase/firestore';
+import { db } from '../../firebase';
+import type { MhdUser, CaseDoc, Medicine, ReportDoc, VitalsDoc, Consent } from '../../lib/types';
+import { fmtD, fmtDT, todayStr, rupees } from '../../lib/format';
+import { logAccess, notify } from '../../lib/fs';
+import MicButton from '../../components/MicButton';
+import Modal from '../../components/Modal';
+import { toast } from '../../components/Toaster';
+import { PageHeader, Loading, EmptyState, StatusChip, inputCls, labelCls, FilterPills } from '../common';
 
-interface CaseType {
-  id: string;
-  patientId: string;
-  patientMhdId: string;
-  patientName: string;
-  date: string;
-  priority: 'High' | 'Medium' | 'Low';
-  status: 'New' | 'Waiting' | 'Active' | 'Reviewed' | 'Closed';
-  symptoms: string;
-  diagnosis: string;
-  assignedDoctorId: string;
-  assignedDoctorName: string;
-  lastUpdated?: any;
-  notes: string;
-  medicines: string;
-  treatment: string;
-  testRequests: string;
-  followUpDate: string;
-}
+interface PRow { id: string; name?: string; dob?: string; gender?: string; bloodGroup?: string; allergies?: string; conditions?: string; surgeries?: string; accidents?: string }
 
-export default function CasesTab({ doctorData, setActiveTab }: { doctorData: any, setActiveTab?: any, globalSearchQuery?: any, setGlobalSearchQuery?: any }) {
-  const [cases, setCases] = useState<CaseType[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('All');
-  const [priorityFilter, setPriorityFilter] = useState('All');
+const emptyRx = { name: '', dose: '', days: '', inst: '' };
 
-  const [selectedCase, setSelectedCase] = useState<CaseType | null>(null);
-  const [editForm, setEditForm] = useState<Partial<CaseType>>({});
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<{ type: 'idle' | 'success' | 'error', msg: string }>({ type: 'idle', msg: '' });
-
-  const fetchCases = async () => {
-    setLoading(true);
-    try {
-      const q = query(collection(db, 'cases'));
-      const snapshot = await getDocs(q);
-      
-      let fetchedCases: CaseType[] = [];
-      snapshot.forEach(docSnap => {
-        fetchedCases.push({ id: docSnap.id, ...docSnap.data() } as CaseType);
-      });
-
-      
-
-      setCases(fetchedCases);
-    } catch (err) {
-      console.error("Error fetching cases:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+export default function CasesTab({ doctorData }: { doctorData: MhdUser }) {
+  const [tab, setTab] = useState('Waiting');
+  const [cases, setCases] = useState<CaseDoc[] | null>(null);
+  const [open, setOpen] = useState<CaseDoc | null>(null);
+  const [patient, setPatient] = useState<PRow | null>(null);
+  const [consent, setConsent] = useState<Consent | null>(null);
+  const [meds, setMeds] = useState<Medicine[]>([]);
+  const [reports, setReports] = useState<ReportDoc[]>([]);
+  const [vitals, setVitals] = useState<VitalsDoc[]>([]);
+  const [notes, setNotes] = useState({ doctorNotes: '', observations: '', tests: '', fee: '', followupDays: '' });
+  const [rx, setRx] = useState([{ ...emptyRx }]);
+  const [share, setShare] = useState(true);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    fetchCases();
+    const u1 = onSnapshot(query(collection(db, 'cases'), where('status', '==', 'waiting')), (s) =>
+      setCases((prev) => {
+        const waiting = s.docs.map((d) => ({ id: d.id, ...d.data() } as CaseDoc));
+        const mine = (prev || []).filter((c) => c.status === 'reviewed' && c.doctorId === doctorData.id);
+        return [...waiting, ...mine];
+      }));
+    return u1;
   }, []);
+  useEffect(() => {
+    const u = onSnapshot(query(collection(db, 'cases'), where('doctorId', '==', doctorData.id)), (s) =>
+      setCases((prev) => {
+        const mine = s.docs.map((d) => ({ id: d.id, ...d.data() } as CaseDoc));
+        const waiting = (prev || []).filter((c) => c.status === 'waiting');
+        return [...waiting, ...mine];
+      }));
+    return u;
+  }, [doctorData.id]);
 
-  const handleOpenCase = (c: CaseType) => {
-    setSelectedCase(c);
-    setEditForm({
-      diagnosis: c.diagnosis || '',
-      notes: c.notes || '',
-      medicines: c.medicines || '',
-      treatment: c.treatment || '',
-      testRequests: c.testRequests || '',
-      followUpDate: c.followUpDate || '',
-      status: c.status
-    });
-    setSaveStatus({ type: 'idle', msg: '' });
-  };
+  // load case context on open
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      try {
+        const ps = await getDoc(doc(db, 'users', open.patientId));
+        setPatient(ps.exists() ? ({ id: ps.id, ...ps.data() } as PRow) : null);
+        const cs = await getDoc(doc(db, 'consents', `${open.patientId}_${doctorData.id}`));
+        setConsent(cs.exists() ? ({ id: cs.id, ...cs.data() } as Consent) : null);
+        const { collection: col, query: q, where: w } = await import('firebase/firestore');
+        const ms = await getDocs(q(col(db, 'medicines'), w('patientId', '==', open.patientId)));
+        setMeds(ms.docs.map((d) => ({ id: d.id, ...d.data() } as Medicine)));
+        const rs = await getDocs(q(col(db, 'reports'), w('patientId', '==', open.patientId)));
+        setReports(rs.docs.map((d) => ({ id: d.id, ...d.data() } as ReportDoc)));
+        const vs = await getDocs(q(col(db, 'vitals'), w('patientId', '==', open.patientId)));
+        setVitals(vs.docs.map((d) => ({ id: d.id, ...d.data() } as VitalsDoc)).sort((a, b) => b.createdAt - a.createdAt));
+      } catch { /* ignore */ }
+    })();
+  }, [open?.id, doctorData.id]);
 
-  const handleUpdateCase = async () => {
-    if (!selectedCase) return;
-    setIsSaving(true);
-    setSaveStatus({ type: 'idle', msg: '' });
+  if (cases === null) return <div className="max-w-[1200px] mx-auto"><Loading /></div>;
 
+  const list = [...cases].filter((c) => tab === 'Waiting' ? c.status === 'waiting' : c.status === 'reviewed' && c.doctorId === doctorData.id)
+    .sort((a, b) => b.createdAt - a.createdAt);
+
+  const blocked = consent?.status === 'revoked';
+
+  const submitReview = async () => {
+    if (!open) return;
+    setBusy(true);
     try {
-      const caseRef = doc(db, 'cases', selectedCase.id);
-      await updateDoc(caseRef, {
-        ...editForm,
-        lastUpdated: serverTimestamp()
+      const prescText = rx.filter((r) => r.name.trim()).map((r) => `${r.name} — ${r.dose} — ${r.days} days — ${r.inst}`).join('\n');
+      await updateDoc(doc(db, 'cases', open.id), {
+        status: 'reviewed', doctorId: doctorData.id, doctorName: 'Dr. ' + doctorData.name,
+        reviewedAt: Date.now(), fee: Number(notes.fee) || 0, doctorNotes: notes.doctorNotes,
+        observations: notes.observations, prescriptionText: prescText, tests: notes.tests,
+        followupDays: notes.followupDays, sharedWithPatient: share,
       });
-
-      // Update local state
-      setCases(cases.map(c => c.id === selectedCase.id ? { ...c, ...editForm } as CaseType : c));
-      setSaveStatus({ type: 'success', msg: 'Case updated successfully.' });
-      
-      setTimeout(() => {
-        setSaveStatus({ type: 'idle', msg: '' });
-      }, 3000);
-    } catch (err) {
-      console.error(err);
-      setSaveStatus({ type: 'error', msg: 'Failed to update case.' });
-    } finally {
-      setIsSaving(false);
-    }
+      for (const r of rx.filter((x) => x.name.trim())) {
+        await addDoc(collection(db, 'medicines'), {
+          patientId: open.patientId, name: r.name.trim(), dosage: [r.dose, r.inst].filter(Boolean).join(' '),
+          startDate: todayStr(), durationDays: r.days, prescribedBy: 'Dr. ' + doctorData.name,
+          verified: true, verifiedBy: 'Dr. ' + doctorData.name, verifiedAt: Date.now(),
+          source: 'doctor', active: true, createdAt: Date.now(),
+        });
+      }
+      const tDate = todayStr();
+      await addDoc(collection(db, 'timeline'), { patientId: open.patientId, date: tDate, type: 'consult', icon: '👨‍⚕️', title: `Consultation by Dr. ${doctorData.name}`, description: open.chiefComplaint, createdAt: Date.now() });
+      if (prescText) await addDoc(collection(db, 'timeline'), { patientId: open.patientId, date: tDate, type: 'prescription', icon: '💊', title: 'Prescription issued', description: prescText, createdAt: Date.now() });
+      if (notes.followupDays && Number(notes.followupDays) > 0) {
+        const due = new Date(Date.now() + Number(notes.followupDays) * 86400000).toISOString().slice(0, 10);
+        await addDoc(collection(db, 'timeline'), { patientId: open.patientId, date: tDate, type: 'followup', icon: '⏰', title: `Follow-up in ${notes.followupDays} days`, description: `Due ${fmtD(due)}`, createdAt: Date.now(), due });
+      }
+      const fee = Number(notes.fee) || 0;
+      if (fee > 0) {
+        await addDoc(collection(db, 'bills'), {
+          patientId: open.patientId, patientName: open.patientName, healthId: open.healthId || '',
+          doctorId: doctorData.id, doctorName: 'Dr. ' + doctorData.name, hospital: doctorData.hospital || 'MHD Hospital',
+          type: 'consultation', items: [{ label: 'Consultation fee', amount: fee }], total: fee,
+          status: 'pending', createdAt: Date.now(),
+        });
+      }
+      await logAccess(open.patientId, 'Dr. ' + doctorData.name, 'doctor', '👨‍⚕️ Dr. ' + doctorData.name + ' reviewed your case');
+      await notify(open.patientId, '📋 Case reviewed', `Dr. ${doctorData.name} reviewed your case "${open.chiefComplaint}"`);
+      toast('Review submitted ✅');
+      setOpen(null);
+      setNotes({ doctorNotes: '', observations: '', tests: '', fee: '', followupDays: '' });
+      setRx([{ ...emptyRx }]);
+    } catch { toast('Could not submit review', 'err'); } finally { setBusy(false); }
   };
-
-  const getStatusColor = (status: string) => {
-    switch(status) {
-      case 'New': return 'bg-[#EBF1F6] text-[#1F5F8B] border-[#90CDF4]';
-      case 'Waiting': return 'bg-[#FEF6E7] text-[#975A16] border-[#F6E0B5]';
-      case 'Active': return 'bg-[#EBF1F6] text-[#1F5F8B] border-[#90CDF4]';
-      case 'Reviewed': return 'bg-[#E8F2EC] text-[#276749] border-[#BCE3C6]';
-      case 'Closed': return 'bg-[#F4F6F8] text-[#52606D] border-[#CBD5E1]';
-      default: return 'bg-[#F4F6F8] text-[#52606D] border-[#CBD5E1]';
-    }
-  };
-
-  const getPriorityColor = (priority: string) => {
-    switch(priority) {
-      case 'High': return 'text-[#B42318] bg-[#FEF2F2] border-[#FCA5A5]';
-      case 'Medium': return 'text-[#975A16] bg-[#FEF6E7] border-[#F6E0B5]';
-      case 'Low': return 'text-[#52606D] bg-[#F4F6F8] border-[#CBD5E1]';
-      default: return 'text-[#52606D] bg-[#F4F6F8] border-[#CBD5E1]';
-    }
-  };
-
-  const filteredCases = cases.filter(c => {
-    const matchesSearch = c.patientName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          c.patientMhdId.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'All' || c.status === statusFilter;
-    const matchesPriority = priorityFilter === 'All' || c.priority === priorityFilter;
-    return matchesSearch && matchesStatus && matchesPriority;
-  });
-
-  if (selectedCase) {
-    return (
-      <div className="max-w-[1200px] mx-auto space-y-6 animate-in slide-in-from-right-4 duration-300 pb-12">
-        {/* Detail View Header */}
-        <div className="flex items-center justify-between bg-[#FFFFFF] border border-[#CBD5E1] p-4 rounded-[4px] shadow-sm">
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setSelectedCase(null)}
-              className="w-8 h-8 flex items-center justify-center rounded-[4px] border border-[#CBD5E1] hover:bg-[#F4F6F8] transition-colors text-[#52606D]"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </button>
-            <div>
-              <div className="flex items-center gap-3 mb-1">
-                <h2 className="text-[18px] font-bold text-[#172B3A] leading-none">{selectedCase.patientName}</h2>
-                <span className="bg-[#102A43] text-white text-[11px] px-2 py-0.5 rounded-[4px] font-bold uppercase">
-                  {selectedCase.patientMhdId}
-                </span>
-                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-[4px] border ${getPriorityColor(selectedCase.priority)}`}>
-                  {selectedCase.priority} Priority
-                </span>
-              </div>
-              <p className="text-[12px] text-[#52606D]">Case opened: {selectedCase.date} • Assigned to: {selectedCase.assignedDoctorName}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex flex-col items-end">
-              <label className="text-[10px] font-bold text-[#52606D] uppercase tracking-wider mb-1">Update Status</label>
-              <select 
-                value={editForm.status}
-                onChange={(e) => setEditForm({...editForm, status: e.target.value as any})}
-                className={`text-[12px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-[4px] border outline-none cursor-pointer ${getStatusColor(editForm.status || 'New')}`}
-              >
-                <option value="New">New</option>
-                <option value="Waiting">Waiting</option>
-                <option value="Active">Active</option>
-                <option value="Reviewed">Reviewed</option>
-                <option value="Closed">Closed</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column: Notes & Assessment */}
-          <div className="lg:col-span-2 space-y-6">
-            
-            <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] overflow-hidden flex flex-col">
-              <div className="bg-[#F9FAFB] border-b border-[#CBD5E1] p-3 flex items-center gap-2">
-                <FileText className="w-4 h-4 text-[#102A43]" />
-                <h3 className="text-[14px] font-semibold text-[#172B3A]">Clinical Assessment</h3>
-              </div>
-              <div className="p-5 space-y-4">
-                <div>
-                  <label className="block text-[12px] font-bold text-[#52606D] uppercase tracking-wider mb-1.5">Reported Symptoms</label>
-                  <div className="bg-[#F4F6F8] border border-[#CBD5E1] rounded-[4px] p-3 text-[13px] text-[#172B3A]">
-                    {selectedCase.symptoms || 'No symptoms recorded.'}
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-[12px] font-bold text-[#172B3A] mb-1.5">Working Diagnosis</label>
-                  <input 
-                    type="text" 
-                    value={editForm.diagnosis}
-                    onChange={(e) => setEditForm({...editForm, diagnosis: e.target.value})}
-                    placeholder="Enter primary diagnosis..."
-                    className="w-full bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:border-[#1F5F8B] text-[#172B3A]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[12px] font-bold text-[#172B3A] mb-1.5">Clinical Notes (History & Physical)</label>
-                  <textarea 
-                    rows={6}
-                    value={editForm.notes}
-                    onChange={(e) => setEditForm({...editForm, notes: e.target.value})}
-                    placeholder="Document examination findings, history of present illness..."
-                    className="w-full bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:border-[#1F5F8B] text-[#172B3A] resize-none"
-                  />
-                </div>
-              </div>
-            </div>
-
-          </div>
-
-          {/* Right Column: Plan & Meds */}
-          <div className="lg:col-span-1 space-y-6">
-            
-            <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] overflow-hidden">
-              <div className="bg-[#F9FAFB] border-b border-[#CBD5E1] p-3 flex items-center gap-2">
-                <Pill className="w-4 h-4 text-[#102A43]" />
-                <h3 className="text-[14px] font-semibold text-[#172B3A]">Treatment & Meds</h3>
-              </div>
-              <div className="p-4 space-y-4">
-                <div>
-                  <label className="block text-[12px] font-bold text-[#172B3A] mb-1.5">Medicines Prescribed</label>
-                  <textarea 
-                    rows={3}
-                    value={editForm.medicines}
-                    onChange={(e) => setEditForm({...editForm, medicines: e.target.value})}
-                    placeholder="Medication names, dosage..."
-                    className="w-full bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:border-[#1F5F8B] text-[#172B3A] resize-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[12px] font-bold text-[#172B3A] mb-1.5">Treatment Plan</label>
-                  <textarea 
-                    rows={3}
-                    value={editForm.treatment}
-                    onChange={(e) => setEditForm({...editForm, treatment: e.target.value})}
-                    placeholder="Non-pharmacological treatment, therapies..."
-                    className="w-full bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:border-[#1F5F8B] text-[#172B3A] resize-none"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] overflow-hidden">
-              <div className="bg-[#F9FAFB] border-b border-[#CBD5E1] p-3 flex items-center gap-2">
-                <Activity className="w-4 h-4 text-[#102A43]" />
-                <h3 className="text-[14px] font-semibold text-[#172B3A]">Labs & Follow-up</h3>
-              </div>
-              <div className="p-4 space-y-4">
-                <div>
-                  <label className="block text-[12px] font-bold text-[#172B3A] mb-1.5">Test Requests / Results</label>
-                  <textarea 
-                    rows={2}
-                    value={editForm.testRequests}
-                    onChange={(e) => setEditForm({...editForm, testRequests: e.target.value})}
-                    placeholder="Requested labs, imaging..."
-                    className="w-full bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:border-[#1F5F8B] text-[#172B3A] resize-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[12px] font-bold text-[#172B3A] mb-1.5">Follow-up Date</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-3 top-2.5 w-4 h-4 text-[#52606D]" />
-                    <input 
-                      type="date" 
-                      value={editForm.followUpDate}
-                      onChange={(e) => setEditForm({...editForm, followUpDate: e.target.value})}
-                      className="w-full bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] pl-9 pr-3 py-2 text-[13px] focus:outline-none focus:border-[#1F5F8B] text-[#172B3A]"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-          </div>
-        </div>
-
-        {/* Floating Action Bar */}
-        <div className="bg-[#102A43] rounded-[4px] p-4 flex items-center justify-between shadow-lg sticky bottom-6 z-10">
-          <div className="flex items-center gap-3 text-white">
-            <Clock className="w-5 h-5 text-[#CBD5E1]" />
-            <div>
-              <p className="text-[13px] font-semibold">Ready to update case record</p>
-              <p className="text-[11px] text-[#CBD5E1]">Modifications will be timestamped and logged.</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-4">
-            {saveStatus.msg && (
-              <span className={`text-[13px] font-medium flex items-center gap-1.5 ${saveStatus.type === 'success' ? 'text-[#48BB78]' : 'text-[#FCA5A5]'}`}>
-                {saveStatus.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-                {saveStatus.msg}
-              </span>
-            )}
-            
-            <button
-              onClick={handleUpdateCase}
-              disabled={isSaving}
-              className="bg-[#FFFFFF] text-[#102A43] px-6 py-2 rounded-[4px] text-[13px] font-bold hover:bg-[#F4F6F8] transition-colors disabled:opacity-70 flex items-center justify-center gap-2"
-            >
-              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              Save Case Updates
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="max-w-[1200px] mx-auto space-y-6 animate-in fade-in duration-200 pb-12">
-      {/* Header & Controls */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-        <div>
-          <h2 className="text-[22px] font-semibold text-[#102A43] mb-1">Clinical Cases</h2>
-          <p className="text-[14px] text-[#52606D]">Manage and review active patient cases, diagnoses, and treatment plans.</p>
-        </div>
-        
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-2.5 w-4 h-4 text-[#52606D]" />
-            <input 
-              type="text" 
-              placeholder="Search ID or Name..." 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full sm:w-[220px] bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] pl-9 pr-3 py-2 text-[13px] focus:outline-none focus:border-[#1F5F8B]"
-            />
-          </div>
-          <div className="relative">
-            <Filter className="absolute left-3 top-2.5 w-4 h-4 text-[#52606D]" />
-            <select 
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full sm:w-[140px] bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] pl-9 pr-3 py-2 text-[13px] focus:outline-none focus:border-[#1F5F8B] appearance-none cursor-pointer"
-            >
-              <option value="All">All Status</option>
-              <option value="New">New</option>
-              <option value="Waiting">Waiting</option>
-              <option value="Active">Active</option>
-              <option value="Reviewed">Reviewed</option>
-              <option value="Closed">Closed</option>
-            </select>
-          </div>
-          <select 
-            value={priorityFilter}
-            onChange={(e) => setPriorityFilter(e.target.value)}
-            className="w-full sm:w-[130px] bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] px-3 py-2 text-[13px] focus:outline-none focus:border-[#1F5F8B] cursor-pointer"
-          >
-            <option value="All">All Priority</option>
-            <option value="High">High</option>
-            <option value="Medium">Medium</option>
-            <option value="Low">Low</option>
-          </select>
-        </div>
-      </div>
+    <div className="max-w-[1200px] mx-auto space-y-6 pb-12">
+      <PageHeader title="📋 Cases" sub="Review waiting cases — prescriptions create medicines, bill and timeline automatically." />
+      <FilterPills filters={['Waiting', 'Reviewed']} value={tab} onChange={setTab} />
 
-      {/* Cases Table */}
-      <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-[#F9FAFB] border-b border-[#CBD5E1]">
-                <th className="px-4 py-3 text-[11px] font-bold text-[#52606D] uppercase tracking-wider">Patient</th>
-                <th className="px-4 py-3 text-[11px] font-bold text-[#52606D] uppercase tracking-wider">Date & Priority</th>
-                <th className="px-4 py-3 text-[11px] font-bold text-[#52606D] uppercase tracking-wider">Clinical Summary</th>
-                <th className="px-4 py-3 text-[11px] font-bold text-[#52606D] uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-[11px] font-bold text-[#52606D] uppercase tracking-wider">Assigned</th>
-                <th className="px-4 py-3 text-[11px] font-bold text-[#52606D] uppercase tracking-wider text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#CBD5E1]">
-              {loading ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center">
-                    <Loader2 className="w-6 h-6 animate-spin text-[#1F5F8B] mx-auto mb-2" />
-                    <p className="text-[13px] text-[#52606D]">Loading cases...</p>
-                  </td>
-                </tr>
-              ) : filteredCases.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center">
-                    <p className="text-[14px] font-medium text-[#172B3A] mb-1">No cases found</p>
-                    <p className="text-[13px] text-[#52606D]">Adjust your filters or search query.</p>
-                  </td>
-                </tr>
-              ) : (
-                filteredCases.map((c) => (
-                  <tr key={c.id} className="hover:bg-[#F9FAFB] transition-colors group">
-                    <td className="px-4 py-4 align-top">
-                      <p className="text-[14px] font-semibold text-[#172B3A] leading-tight">{c.patientName}</p>
-                      <p className="text-[11px] text-[#52606D] font-mono mt-0.5">{c.patientMhdId}</p>
-                    </td>
-                    <td className="px-4 py-4 align-top">
-                      <p className="text-[13px] font-medium text-[#172B3A]">{c.date}</p>
-                      <div className="mt-1.5">
-                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-[4px] border inline-block ${getPriorityColor(c.priority)}`}>
-                          {c.priority}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 align-top max-w-[300px]">
-                      <p className="text-[12px] text-[#172B3A] font-semibold truncate mb-1">
-                        <span className="text-[#52606D] font-normal mr-1">Dx:</span> 
-                        {c.diagnosis || 'Pending Diagnosis'}
-                      </p>
-                      <p className="text-[12px] text-[#52606D] line-clamp-2 leading-relaxed">
-                        <span className="font-semibold text-[#52606D] mr-1">Sx:</span>
-                        {c.symptoms}
-                      </p>
-                    </td>
-                    <td className="px-4 py-4 align-top">
-                      <span className={`text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded-[4px] border inline-block ${getStatusColor(c.status)}`}>
-                        {c.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 align-top">
-                      <div className="flex items-center gap-2">
-                        <UserCircle className="w-4 h-4 text-[#52606D]" />
-                        <p className="text-[13px] text-[#172B3A]">{c.assignedDoctorName}</p>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 align-top text-right">
-                      <button 
-                        onClick={() => handleOpenCase(c)}
-                        className="inline-flex items-center gap-1.5 text-[12px] font-medium text-[#1F5F8B] bg-[#FFFFFF] border border-[#CBD5E1] px-3 py-1.5 rounded-[4px] hover:bg-[#F4F6F8] transition-colors"
-                      >
-                        Review <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      {list.length === 0 ? (
+        <EmptyState icon={<FileText className="w-8 h-8 text-ghost mx-auto" strokeWidth={1.5} />} title={`No ${tab.toLowerCase()} cases`} sub={tab === 'Waiting' ? 'New patient cases will appear here.' : 'Cases you review appear here.'} />
+      ) : (
+        <div className="grid lg:grid-cols-2 gap-4">
+          {list.map((c) => (
+            <button key={c.id} onClick={() => setOpen(c)} className="bg-surface border border-line rounded-[4px] p-4 shadow-sm text-left hover:border-primary transition-colors">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[14px] font-semibold text-ink">{c.patientName} <span className="text-[11px] text-muted font-mono">{c.healthId}</span></p>
+                  <p className="text-[13px] text-ink mt-1">{c.chiefComplaint}</p>
+                  <p className="text-[12px] text-muted mt-1">{c.severity} · {c.area || '—'} · {fmtDT(c.createdAt)}</p>
+                </div>
+                <StatusChip ok={c.status === 'reviewed'} warn={c.status === 'waiting'}>{c.status === 'reviewed' ? '🟩 Reviewed' : '🟡 Waiting'}</StatusChip>
+              </div>
+            </button>
+          ))}
         </div>
-      </div>
+      )}
+
+      {open && (
+        <Modal wide title={`Case — ${open.patientName}`} onClose={() => setOpen(null)}
+          icon={<FileText className="w-5 h-5 text-primary" strokeWidth={1.5} />}>
+          {blocked ? (
+            <div className="flex items-start gap-2 p-4 bg-danger-bg border border-danger-bd text-danger text-[13px] rounded-[4px]">
+              <ShieldBan className="w-5 h-5 shrink-0 mt-0.5" />
+              <div><b>Access blocked.</b> This patient revoked your consent. The attempt has been logged.</div>
+            </div>
+          ) : (
+            <div className="space-y-5 text-[13px]">
+              {/* AI snapshot */}
+              <div className="bg-app border border-line rounded-[4px] p-4">
+                <h5 className="text-[11px] font-bold text-muted uppercase tracking-wider mb-2">🧠 Case snapshot</h5>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  <p><b className="text-muted">Age/Gender:</b> {patient ? `${patient.dob ? new Date().getFullYear() - new Date(patient.dob).getFullYear() : '—'} · ${patient.gender || '—'}` : '—'}</p>
+                  <p><b className="text-muted">Blood:</b> {patient?.bloodGroup || '—'}</p>
+                  <p><b className="text-danger">Allergies:</b> {patient?.allergies || '—'}</p>
+                  <p><b className="text-muted">Conditions:</b> {patient?.conditions || '—'}</p>
+                  <p className="col-span-2"><b className="text-muted">Surgery:</b> {(patient?.surgeries || '—').split('\n')[0]}</p>
+                  <p><b className="text-muted">Active meds:</b> {meds.filter((m) => m.active !== false).length}</p>
+                  <p><b className="text-muted">Documents:</b> {reports.length} ({reports.filter((r) => r.verified).length} verified)</p>
+                  <p className="col-span-2"><b className="text-muted">Latest vitals:</b> {vitals[0] ? `${vitals[0].bp || '—'} BP · ${vitals[0].temp || '—'}°F · ${vitals[0].hr || '—'} bpm (${fmtD(vitals[0].date)})` : '—'}</p>
+                </div>
+              </div>
+
+              {/* patient-reported */}
+              <div>
+                <h5 className="text-[11px] font-bold text-muted uppercase tracking-wider mb-2">🟦 Patient-reported</h5>
+                <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1">
+                  {[['Complaint', open.chiefComplaint], ['Symptoms', open.symptoms], ['Duration', open.duration], ['Area', open.area], ['Severity', open.severity], ['Prev treatment', open.prevTreatment], ['Existing', open.existing], ['Current meds', open.currentMeds], ['Allergy note', open.allergyNote], ['Surgery note', open.surgeryNote], ['Family history', open.familyHistory], ['Other', open.other]].map(([k, v]) => v && (
+                    <p key={k as string}><b className="text-muted">{k}:</b> <span className="whitespace-pre-line">{v}</span></p>
+                  ))}
+                </div>
+              </div>
+
+              {/* doctor form */}
+              <div className="border-t border-line pt-4 space-y-3">
+                <h5 className="text-[11px] font-bold text-muted uppercase tracking-wider">🟩 Doctor review</h5>
+                <div>
+                  <label className={labelCls}>Clinical notes</label>
+                  <div className="flex gap-2"><textarea rows={2} value={notes.doctorNotes} onChange={(e) => setNotes({ ...notes, doctorNotes: e.target.value })} className={inputCls + ' h-auto py-2'} /><MicButton onText={(t2) => setNotes({ ...notes, doctorNotes: (notes.doctorNotes ? notes.doctorNotes + ' ' : '') + t2 })} /></div>
+                </div>
+                <div>
+                  <label className={labelCls}>Observations</label>
+                  <div className="flex gap-2"><textarea rows={2} value={notes.observations} onChange={(e) => setNotes({ ...notes, observations: e.target.value })} className={inputCls + ' h-auto py-2'} /><MicButton onText={(t2) => setNotes({ ...notes, observations: (notes.observations ? notes.observations + ' ' : '') + t2 })} /></div>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className={labelCls + ' mb-0'}>Prescription</label>
+                    <button type="button" onClick={() => setRx([...rx, { ...emptyRx }])} className="text-[12px] font-medium text-primary flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> Add row</button>
+                  </div>
+                  <div className="space-y-2">
+                    {rx.map((r, i) => (
+                      <div key={i} className="grid grid-cols-[1.2fr_1fr_0.6fr_1.2fr_auto] gap-2">
+                        <input value={r.name} onChange={(e) => setRx(rx.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} placeholder="Medicine" className={inputCls} />
+                        <input value={r.dose} onChange={(e) => setRx(rx.map((x, j) => j === i ? { ...x, dose: e.target.value } : x))} placeholder="Dose" className={inputCls} />
+                        <input value={r.days} onChange={(e) => setRx(rx.map((x, j) => j === i ? { ...x, days: e.target.value } : x))} placeholder="Days" className={inputCls} />
+                        <input value={r.inst} onChange={(e) => setRx(rx.map((x, j) => j === i ? { ...x, inst: e.target.value } : x))} placeholder="Instructions" className={inputCls} />
+                        <button type="button" onClick={() => setRx(rx.filter((_, j) => j !== i))} className="p-2 text-danger hover:bg-danger-bg rounded-[4px]"><Trash2 className="w-4 h-4" /></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid sm:grid-cols-3 gap-3">
+                  <div><label className={labelCls}>Recommended tests</label><input value={notes.tests} onChange={(e) => setNotes({ ...notes, tests: e.target.value })} className={inputCls} /></div>
+                  <div><label className={labelCls}>Consultation fee (₹)</label><input type="number" value={notes.fee} onChange={(e) => setNotes({ ...notes, fee: e.target.value })} className={inputCls} /></div>
+                  <div><label className={labelCls}>Follow-up (days)</label><input type="number" value={notes.followupDays} onChange={(e) => setNotes({ ...notes, followupDays: e.target.value })} className={inputCls} /></div>
+                </div>
+                <label className="flex items-center gap-2 text-[13px] text-muted">
+                  <input type="checkbox" checked={share} onChange={(e) => setShare(e.target.checked)} className="w-4 h-4" /> Share review with patient
+                </label>
+              </div>
+
+              {/* patient meds needing verify */}
+              {meds.filter((m) => !m.verified).length > 0 && (
+                <div className="border border-warn-bd bg-warn-bg rounded-[4px] p-3">
+                  <p className="text-[11px] font-bold text-warn uppercase tracking-wider mb-2">Unverified patient medicines</p>
+                  {meds.filter((m) => !m.verified).map((m) => (
+                    <div key={m.id} className="flex items-center justify-between text-[12px] py-1">
+                      <span className="text-ink">{m.name} · {m.dosage}</span>
+                      <button onClick={async () => { await updateDoc(doc(db, 'medicines', m.id), { verified: true, verifiedBy: 'Dr. ' + doctorData.name, verifiedAt: Date.now() }); toast('Medicine verified ✅'); }} className="font-medium text-ok">Verify</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button onClick={submitReview} disabled={busy} className="w-full h-[44px] bg-primary text-on-navy rounded-[6px] text-[14px] font-medium hover:bg-primary-d flex items-center justify-center disabled:opacity-70">
+                {busy ? <Loader2 className="w-5 h-5 animate-spin" /> : `Submit Review${Number(notes.fee) > 0 ? ` · bill ${rupees(Number(notes.fee))}` : ''}`}
+              </button>
+            </div>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }

@@ -3,15 +3,15 @@ import { getAnalytics, isSupported } from "firebase/analytics";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
-// Your web app's Firebase configuration
+// MHD Hospital — existing Firebase project (same data as the original app)
 const firebaseConfig = {
-  apiKey: "AIzaSyC2YulXZka3Yk8ptvtOmCSf0xyILjGGqrI",
-  authDomain: "mhd-hospital.firebaseapp.com",
-  projectId: "mhd-hospital",
-  storageBucket: "mhd-hospital.firebasestorage.app",
-  messagingSenderId: "292842587519",
-  appId: "1:292842587519:web:1f000fcae0908fc121864a",
-  measurementId: "G-69946641V2"
+  apiKey: "AIzaSyBXdkeWIoIlMEa5DWIrE4yHuI_jHTeM1mo",
+  authDomain: "every-life-matters-8aca8.firebaseapp.com",
+  projectId: "every-life-matters-8aca8",
+  storageBucket: "every-life-matters-8aca8.firebasestorage.app",
+  messagingSenderId: "471031101690",
+  appId: "1:471031101690:web:56f82fae6aa0287e787143",
+  measurementId: "G-4K1CNF2MZ7",
 };
 
 // Initialize Firebase

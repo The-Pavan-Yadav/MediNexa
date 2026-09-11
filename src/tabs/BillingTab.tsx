@@ -1,207 +1,70 @@
-import React, { useState, useEffect } from 'react';
-import { db, auth } from '../firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { CreditCard, Download, FileText, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { CreditCard } from 'lucide-react';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+import type { MhdUser, Bill } from '../lib/types';
+import { fmtD, rupees } from '../lib/format';
+import { toast } from '../components/Toaster';
+import { bind } from './bind';
+import { PageHeader, Loading, EmptyState, StatusChip } from './common';
 
-type InvoiceStatus = 'paid' | 'pending' | 'overdue' | string;
+export default function BillingTab({ patientData }: { patientData: MhdUser }) {
+  const [bills, setBills] = useState<Bill[] | null>(null);
 
-export default function BillingTab({ patientData }: { patientData?: any }) {
-  const [invoices, setInvoices] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  useEffect(() => bind<Bill>('bills', [['patientId', '==', patientData.id]], setBills), [patientData.id]);
 
-  useEffect(() => {
-    if (patientData?.mhdId) fetchBilling();
-  }, [patientData]);
+  if (bills === null) return <div className="max-w-[1000px] mx-auto space-y-6"><Loading /></div>;
 
-  const fetchBilling = async () => {
-    setLoading(true);
+  const list = [...bills].sort((a, b) => b.createdAt - a.createdAt);
+  const total = bills.reduce((s, b) => s + (b.total || 0), 0);
+  const paid = bills.filter((b) => b.status === 'paid').reduce((s, b) => s + (b.total || 0), 0);
+  const pending = total - paid;
+
+  const pay = async (b: Bill) => {
     try {
-      const q = query(collection(db, 'billing'), where('patientId', '==', auth.currentUser?.uid));
-      const snap = await getDocs(q);
-      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      data.sort((a:any, b:any) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      setInvoices(data);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const [filter, setFilter] = useState<'All' | 'Pending' | 'Paid' | 'Overdue'>('All');
-
-  const filteredInvoices = invoices.filter(inv => {
-    if (filter === 'All') return true;
-    return inv.status?.toLowerCase() === filter.toLowerCase();
-  });
-
-  const totalOutstanding = invoices
-    .filter(i => i.status !== 'paid' && i.status !== 'Paid')
-    .reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
-
-  const totalOverdue = invoices
-    .filter(i => i.status === 'overdue' || i.status === 'Overdue')
-    .reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
-
-  const StatusBadge = ({ status }: { status: InvoiceStatus }) => {
-    if (status === 'paid') {
-      return (
-        <span className="inline-flex items-center gap-1 bg-[#E8F2EC] text-[#276749] text-[11px] px-2 py-0.5 rounded-[4px] font-bold uppercase border border-[#BCE3C6]">
-          <CheckCircle2 className="w-3 h-3" /> Paid
-        </span>
-      );
-    }
-    if (status === 'pending') {
-      return (
-        <span className="inline-flex items-center gap-1 bg-[#FEF6E7] text-[#975A16] text-[11px] px-2 py-0.5 rounded-[4px] font-bold uppercase border border-[#F6E0B5]">
-          <Clock className="w-3 h-3" /> Pending
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex items-center gap-1 bg-[#FEF2F2] text-[#B42318] text-[11px] px-2 py-0.5 rounded-[4px] font-bold uppercase border border-[#FCA5A5]">
-        <AlertCircle className="w-3 h-3" /> Overdue
-      </span>
-    );
+      await updateDoc(doc(db, 'bills', b.id), { status: 'paid', paidAt: Date.now() });
+      toast('Payment recorded ✅');
+    } catch { toast('Could not pay', 'err'); }
   };
 
   return (
-    <div className="max-w-[1000px] mx-auto space-y-6 animate-in fade-in duration-200">
-      
-      {/* Header */}
-      <div>
-        <h2 className="text-[22px] font-semibold text-[#102A43] mb-1">Billing & Invoices</h2>
-        <p className="text-[14px] text-[#52606D]">Manage your hospital accounts, outstanding balances, and payment history.</p>
+    <div className="max-w-[1000px] mx-auto space-y-6 pb-12">
+      <PageHeader title="🧾 Billing" sub="Consultation fees and hospital bills — pay pending ones here." />
+
+      <div className="grid grid-cols-3 gap-4">
+        {[['Total', total, 'text-heading'], ['Paid', paid, 'text-ok'], ['Pending', pending, 'text-danger']].map(([l, v, c]) => (
+          <div key={l as string} className="bg-surface border border-line rounded-[4px] p-4 shadow-sm">
+            <p className="text-[11px] font-bold text-muted uppercase tracking-wider">{l}</p>
+            <p className={`text-[24px] font-bold leading-tight ${c}`}>{rupees(v as number)}</p>
+          </div>
+        ))}
       </div>
 
-      {/* Account Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Outstanding Balance */}
-        <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-5 flex items-center justify-between">
-          <div>
-            <p className="text-[12px] font-bold text-[#52606D] uppercase tracking-wider mb-1">Total Outstanding</p>
-            <p className={`text-[28px] font-bold leading-none ${totalOutstanding > 0 ? 'text-[#172B3A]' : 'text-[#276749]'}`}>
-              ${totalOutstanding.toFixed(2)}
-            </p>
-          </div>
-          <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${totalOutstanding > 0 ? 'bg-[#F4F6F8] border border-[#CBD5E1]' : 'bg-[#E8F2EC] border border-[#BCE3C6]'}`}>
-            <CreditCard className={`w-6 h-6 ${totalOutstanding > 0 ? 'text-[#102A43]' : 'text-[#276749]'}`} />
-          </div>
-        </div>
-
-        {/* Action Required / Overdue */}
-        <div className={`bg-[#FFFFFF] border rounded-[4px] p-5 flex items-center justify-between ${totalOverdue > 0 ? 'border-[#FCA5A5]' : 'border-[#CBD5E1]'}`}>
-          <div>
-            <p className={`text-[12px] font-bold uppercase tracking-wider mb-1 ${totalOverdue > 0 ? 'text-[#B42318]' : 'text-[#52606D]'}`}>
-              Overdue Amount
-            </p>
-            <p className={`text-[28px] font-bold leading-none ${totalOverdue > 0 ? 'text-[#B42318]' : 'text-[#172B3A]'}`}>
-              ${totalOverdue.toFixed(2)}
-            </p>
-          </div>
-          <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${totalOverdue > 0 ? 'bg-[#FEF2F2]' : 'bg-[#F4F6F8]'}`}>
-            <AlertCircle className={`w-6 h-6 ${totalOverdue > 0 ? 'text-[#B42318]' : 'text-[#52606D]'}`} />
-          </div>
-        </div>
-
-        {/* Quick Payment Action */}
-        <div className="bg-[#102A43] border border-[#102A43] rounded-[4px] p-5 flex flex-col justify-center">
-          <p className="text-[13px] text-[#CBD5E1] mb-3">Make a secure online payment towards your outstanding balance.</p>
-          <button 
-            disabled={totalOutstanding === 0}
-            className="w-full text-[13px] font-medium text-[#102A43] bg-[#FFFFFF] px-4 py-2 rounded-[4px] hover:bg-[#F4F6F8] transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <CreditCard className="w-4 h-4" /> Pay Balance Now
-          </button>
-        </div>
-      </div>
-
-      {/* Invoices List */}
-      <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] overflow-hidden">
-        
-        {/* Table Toolbar */}
-        <div className="bg-[#F9FAFB] border-b border-[#CBD5E1] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar">
-            {['All', 'Pending', 'Overdue', 'Paid'].map(f => (
-              <button
-                key={f}
-                onClick={() => setFilter(f as any)}
-                className={`px-3 py-1.5 rounded-[4px] text-[13px] font-medium transition-colors shrink-0 ${
-                  filter === f 
-                    ? 'bg-[#1F5F8B] text-white border border-[#1F5F8B]' 
-                    : 'bg-white border border-[#CBD5E1] text-[#52606D] hover:text-[#172B3A] hover:bg-[#EBF1F6]'
-                }`}
-              >
-                {f}
-              </button>
+      {list.length === 0 ? (
+        <EmptyState icon={<CreditCard className="w-8 h-8 text-ghost mx-auto" strokeWidth={1.5} />} title="No bills yet" sub="Bills appear here after consultations and hospital services." />
+      ) : (
+        <div className="bg-surface border border-line rounded-[4px] shadow-sm overflow-hidden">
+          <div className="divide-y divide-line">
+            {list.map((b) => (
+              <div key={b.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 hover:bg-stripe transition-colors">
+                <div>
+                  <p className="text-[13px] font-semibold text-ink">{b.doctorName || b.hospital || 'MHD Hospital'} <span className="text-muted font-normal">· {b.type || 'bill'}</span></p>
+                  <p className="text-[12px] text-muted mt-0.5">
+                    {(b.items || []).map((i) => `${i.label} ${rupees(i.amount)}`).join(' + ') || '—'} · {fmtD(b.createdAt)}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-[15px] font-bold text-heading">{rupees(b.total)}</span>
+                  <StatusChip ok={b.status === 'paid'} danger={b.status === 'pending'}>{b.status === 'paid' ? '✅ Paid' : '⏳ Pending'}</StatusChip>
+                  {b.status === 'pending' && (
+                    <button onClick={() => pay(b)} className="text-[12px] font-bold text-white bg-primary px-4 py-1.5 rounded-[4px] hover:bg-primary-d transition-colors">Pay</button>
+                  )}
+                </div>
+              </div>
             ))}
           </div>
         </div>
-
-        {/* Responsive Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[700px]">
-            <thead>
-              <tr className="bg-[#F4F6F8] border-b border-[#CBD5E1]">
-                <th className="px-5 py-3 text-[11px] font-bold text-[#52606D] uppercase tracking-wider">Invoice Date</th>
-                <th className="px-5 py-3 text-[11px] font-bold text-[#52606D] uppercase tracking-wider">Description</th>
-                <th className="px-5 py-3 text-[11px] font-bold text-[#52606D] uppercase tracking-wider">Amount</th>
-                <th className="px-5 py-3 text-[11px] font-bold text-[#52606D] uppercase tracking-wider">Status</th>
-                <th className="px-5 py-3 text-[11px] font-bold text-[#52606D] uppercase tracking-wider text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#CBD5E1]">
-              {filteredInvoices.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-5 py-12 text-center">
-                    <FileText className="w-8 h-8 text-[#CBD5E1] mx-auto mb-3" />
-                    <p className="text-[14px] font-medium text-[#172B3A]">No invoices found</p>
-                    <p className="text-[13px] text-[#52606D] mt-1">There are no {filter.toLowerCase()} bills at this time.</p>
-                  </td>
-                </tr>
-              ) : (
-                filteredInvoices.map((inv) => (
-                  <tr key={inv.id} className="hover:bg-[#F9FAFB] transition-colors group">
-                    <td className="px-5 py-4 align-top">
-                      <p className="text-[13px] font-semibold text-[#172B3A] whitespace-nowrap">{inv.date}</p>
-                      <p className="text-[12px] text-[#52606D] mt-0.5">{inv.id}</p>
-                    </td>
-                    <td className="px-5 py-4 align-top">
-                      <p className="text-[14px] font-medium text-[#172B3A]">{inv.description}</p>
-                      <p className="text-[12px] text-[#52606D] mt-0.5">{inv.category}</p>
-                    </td>
-                    <td className="px-5 py-4 align-top">
-                      <p className="text-[15px] font-bold text-[#172B3A]">${inv.amount.toFixed(2)}</p>
-                    </td>
-                    <td className="px-5 py-4 align-top">
-                      <StatusBadge status={inv.status} />
-                      {inv.dueDate && inv.status !== 'paid' && (
-                        <p className="text-[11px] text-[#52606D] mt-1.5 whitespace-nowrap">Due: {inv.dueDate}</p>
-                      )}
-                    </td>
-                    <td className="px-5 py-4 align-top text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {inv.status !== 'paid' && (
-                          <button className="text-[12px] font-medium text-[#FFFFFF] bg-[#1F5F8B] px-3 py-1.5 rounded-[4px] hover:bg-[#173F5F] transition-colors border border-[#1F5F8B]">
-                            Pay
-                          </button>
-                        )}
-                        <button className="text-[12px] font-medium text-[#52606D] bg-[#FFFFFF] border border-[#CBD5E1] px-3 py-1.5 rounded-[4px] hover:bg-[#F4F6F8] hover:text-[#172B3A] transition-colors flex items-center gap-1.5">
-                          <FileText className="w-3.5 h-3.5" /> View
-                        </button>
-                        <button className="text-[12px] font-medium text-[#52606D] hover:text-[#1F5F8B] p-1.5 rounded-[4px] hover:bg-[#EBF1F6] transition-colors" title="Download PDF">
-                          <Download className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
+      )}
     </div>
   );
 }

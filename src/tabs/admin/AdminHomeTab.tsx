@@ -1,208 +1,88 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Users, 
-  Stethoscope, 
-  Activity, 
-  Calendar, 
-  FileCheck, 
-  CreditCard,
-  ArrowRight,
-  Clock,
-  ShieldCheck
-} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Users, Stethoscope, CalendarCheck, FileCheck, Loader2 } from 'lucide-react';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { collection, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
+import type { MhdUser, Appointment, ReportDoc } from '../../lib/types';
+import { t } from '../../lib/i18n';
+import { todayStr, fmtD, timeToMin } from '../../lib/format';
+import { PageHeader } from '../common';
 
-export default function AdminHomeTab({ adminData }: { adminData: any }) {
-  const [stats, setStats] = useState({
-    totalPatients: 0,
-    totalDoctors: 0,
-    activeCases: 0,
-    todaysAppts: 0,
-    pendingVerifications: 0,
-    pendingBills: 0
-  });
+interface URow { id: string; role?: string; name?: string; healthId?: string }
 
-  const [loading, setLoading] = useState(true);
+export default function AdminHomeTab({ adminData, go }: { adminData: MhdUser; go?: (tab: string) => void }) {
+  const [users, setUsers] = useState<URow[] | null>(null);
+  const [appts, setAppts] = useState<Appointment[] | null>(null);
+  const [reports, setReports] = useState<ReportDoc[]>([]);
 
   useEffect(() => {
-    const fetchStats = async () => {
-      setLoading(true);
-      try {
-        // Patients & Doctors
-        const usersSnap = await getDocs(collection(db, 'users'));
-        let pCount = 0;
-        let dCount = 0;
-        usersSnap.forEach(doc => {
-          const r = doc.data().role;
-          if (r === 'patient') pCount++;
-          if (r === 'doctor') dCount++;
-        });
-
-        // Active Cases
-        const casesSnap = await getDocs(query(collection(db, 'cases'), where('status', '==', 'Active')));
-        const cCount = casesSnap.size;
-
-        // Today's Appointments
-        const todayStr = new Date().toISOString().split('T')[0];
-        const apptsSnap = await getDocs(query(collection(db, 'appointments'), where('date', '==', todayStr)));
-        const aCount = apptsSnap.size;
-
-        setStats(prev => ({
-          ...prev,
-          totalPatients: pCount,
-          totalDoctors: dCount,
-          activeCases: cCount,
-          todaysAppts: aCount
-        }));
-      } catch (err) {
-        console.error("Failed to fetch admin stats", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStats();
+    const us: (() => void)[] = [];
+    const u0 = onSnapshot(collection(db, 'users'), (s) => { setUsers(s.docs.map((d) => ({ id: d.id, ...d.data() } as URow))); });
+    us.push(u0);
+    us.push(onSnapshot(collection(db, 'appointments'), (s) => setAppts(s.docs.map((d) => ({ id: d.id, ...d.data() } as Appointment)))));
+    us.push(onSnapshot(query(collection(db, 'reports'), where('verified', '==', false)), (s) => setReports(s.docs.map((d) => ({ id: d.id, ...d.data() } as ReportDoc)))));
+    return () => us.forEach((u) => u());
   }, []);
 
-  const StatCard = ({ title, value, subtitle, icon: Icon, colorClass, bgClass, borderClass }: any) => (
-    <div className={`bg-[#FFFFFF] border ${borderClass} rounded-[4px] p-5 flex flex-col shadow-sm`}>
-      <div className="flex items-center justify-between mb-3">
-        <p className={`text-[11px] font-bold uppercase tracking-wider ${colorClass}`}>{title}</p>
-        <div className={`p-1.5 rounded-[4px] ${bgClass}`}>
-          <Icon className={`w-4 h-4 ${colorClass}`} />
-        </div>
-      </div>
-      <p className={`text-[28px] font-bold leading-none mb-1 text-[#172B3A]`}>
-        {loading ? '...' : value}
-      </p>
-      <p className="text-[11px] text-[#52606D]">{subtitle}</p>
-    </div>
-  );
+  if (users === null || appts === null) return <div className="max-w-[1200px] mx-auto"><div className="bg-surface border border-line rounded-[4px] p-10 text-center"><Loader2 className="w-6 h-6 animate-spin text-muted mx-auto" /></div></div>;
+
+  const patients = users.filter((u) => u.role === 'patient');
+  const doctors = users.filter((u) => u.role === 'doctor');
+  const today = todayStr();
+  const todays = appts.filter((a) => a.date === today && a.status !== 'cancelled').sort((a, b) => timeToMin(a.time) - timeToMin(b.time));
 
   return (
-    <div className="max-w-[1200px] mx-auto space-y-6 animate-in fade-in duration-200 pb-12">
-      
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-[24px] font-bold text-[#102A43] mb-1">
-            System Overview
-          </h2>
-          <p className="text-[14px] text-[#52606D]">
-            Global administration and hospital operations dashboard.
-          </p>
-        </div>
-        <div className="bg-[#102A43] border border-[#102A43] rounded-[4px] px-4 py-2 flex items-center gap-3 shadow-sm">
-          <ShieldCheck className="w-5 h-5 text-[#48BB78]" />
-          <div>
-            <p className="text-[10px] text-[#CBD5E1] uppercase tracking-wider font-semibold">System Status</p>
-            <p className="text-[13px] font-bold text-white">All Systems Operational</p>
+    <div className="max-w-[1200px] mx-auto space-y-6 pb-12">
+      <PageHeader title={`🏥 ${t('hdash')}`} sub={`${adminData.name}${adminData.licenseNo ? ` · License ${adminData.licenseNo}` : ''}`} />
+
+      <div className="grid grid-cols-3 gap-4">
+        {([['Total patients', patients.length, Users], ['Total doctors', doctors.length, Stethoscope], ['Today\u2019s appointments', todays.length, CalendarCheck]] as [string, number, typeof Users][]).map(([label, val, Icon]) => (
+          <div key={label} className="bg-surface border border-line rounded-[4px] p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold text-muted uppercase tracking-wider">{label}</span>
+              <Icon className="w-4 h-4 text-primary" strokeWidth={1.5} />
+            </div>
+            <p className="text-[28px] font-bold leading-none text-heading">{val}</p>
           </div>
-        </div>
+        ))}
       </div>
 
-      {/* KPI Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <StatCard 
-          title="Total Patients" 
-          value={stats.totalPatients} 
-          subtitle="Registered accounts"
-          icon={Users}
-          colorClass="text-[#1F5F8B]"
-          bgClass="bg-[#EBF1F6]"
-          borderClass="border-[#CBD5E1]"
-        />
-        <StatCard 
-          title="Total Doctors" 
-          value={stats.totalDoctors} 
-          subtitle="Active medical staff"
-          icon={Stethoscope}
-          colorClass="text-[#276749]"
-          bgClass="bg-[#E8F2EC]"
-          borderClass="border-[#CBD5E1]"
-        />
-        <StatCard 
-          title="Active Cases" 
-          value={stats.activeCases} 
-          subtitle="Currently open/active"
-          icon={Activity}
-          colorClass="text-[#975A16]"
-          bgClass="bg-[#FEF6E7]"
-          borderClass="border-[#CBD5E1]"
-        />
-        <StatCard 
-          title="Today's Appointments" 
-          value={stats.todaysAppts} 
-          subtitle="Scheduled across all depts"
-          icon={Calendar}
-          colorClass="text-[#1F5F8B]"
-          bgClass="bg-[#EBF1F6]"
-          borderClass="border-[#CBD5E1]"
-        />
-        <StatCard 
-          title="Pending Verifications" 
-          value={stats.pendingVerifications} 
-          subtitle="Documents awaiting review"
-          icon={FileCheck}
-          colorClass="text-[#B42318]"
-          bgClass="bg-[#FEF2F2]"
-          borderClass="border-[#FCA5A5]"
-        />
-        <StatCard 
-          title="Pending Bills" 
-          value={stats.pendingBills} 
-          subtitle="Invoices awaiting payment"
-          icon={CreditCard}
-          colorClass="text-[#B42318]"
-          bgClass="bg-[#FEF2F2]"
-          borderClass="border-[#FCA5A5]"
-        />
-      </div>
+      {reports.length > 0 && go && (
+        <button onClick={() => go(t('hdocs'))} className="w-full flex items-center justify-between bg-warn-bg border-l-4 border-warn border-y border-r border-y-warn-bd border-r-warn-bd rounded-[4px] p-4">
+          <div className="flex items-center gap-3">
+            <FileCheck className="w-5 h-5 text-warn" strokeWidth={1.5} />
+            <span className="text-[13px] font-medium text-ink">{reports.length} uploaded document{reports.length > 1 ? 's' : ''} awaiting verification</span>
+          </div>
+          <span className="text-[13px] font-bold text-warn">Verify →</span>
+        </button>
+      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Recent Activity Feed */}
-        <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] overflow-hidden shadow-sm">
-          <div className="bg-[#F9FAFB] border-b border-[#CBD5E1] p-4 flex items-center justify-between">
-            <h3 className="text-[14px] font-semibold text-[#172B3A] flex items-center gap-2">
-              <Clock className="w-4 h-4 text-[#102A43]" /> Recent System Activity
-            </h3>
-            <button className="text-[12px] font-medium text-[#1F5F8B] hover:underline">View Audit Log</button>
-          </div>
-          <div className="divide-y divide-[#CBD5E1]">
-             <div className="p-8 text-center text-[13px] text-[#52606D]">No recent system activity available.</div>
-          </div>
-        </div>
-
-        {/* Action Center */}
-        <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] overflow-hidden shadow-sm">
-          <div className="bg-[#F9FAFB] border-b border-[#CBD5E1] p-4">
-            <h3 className="text-[14px] font-semibold text-[#172B3A] flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-[#102A43]" /> Quick Admin Actions
-            </h3>
-          </div>
-          <div className="p-4 space-y-3">
-            {[
-              { label: 'Review Document Verifications', count: stats.pendingVerifications, color: 'text-[#B42318]', bg: 'bg-[#FEF2F2]' },
-              { label: 'Process Pending Invoices', count: stats.pendingBills, color: 'text-[#975A16]', bg: 'bg-[#FEF6E7]' },
-              { label: 'Manage Doctor Rosters', count: 0, color: 'text-[#52606D]', bg: 'bg-[#F4F6F8]' }
-            ].map((action, i) => (
-              <button key={i} className="w-full flex items-center justify-between p-3 border border-[#CBD5E1] rounded-[4px] hover:bg-[#F4F6F8] transition-colors group">
-                <span className="text-[13px] font-semibold text-[#172B3A]">{action.label}</span>
-                <div className="flex items-center gap-3">
-                  {action.count > 0 && (
-                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-[4px] ${action.color} ${action.bg}`}>
-                      {action.count} Actionable
-                    </span>
-                  )}
-                  <ArrowRight className="w-4 h-4 text-[#52606D] group-hover:text-[#1F5F8B] transition-colors" />
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-
+      <div className="bg-surface border border-line rounded-[4px] shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-line bg-stripe text-[11px] font-bold text-muted uppercase tracking-wider">🗓️ Today&apos;s patient queue ({fmtD(today)})</div>
+        {todays.length === 0 ? (
+          <p className="p-6 text-[13px] text-muted text-center">No appointments today.</p>
+        ) : (
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-stripe border-b border-line">
+                {['Queue', 'Time', 'Patient', 'Doctor', 'Type', 'Status'].map((h) => (
+                  <th key={h} className="px-4 py-2.5 text-[11px] font-bold text-muted uppercase tracking-wider">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {todays.map((a, i) => (
+                <tr key={a.id} className="hover:bg-stripe transition-colors text-[13px]">
+                  <td className="px-4 py-3 font-bold text-primary">🎟️ #{i + 1}</td>
+                  <td className="px-4 py-3 text-ink font-medium">{a.time}</td>
+                  <td className="px-4 py-3 text-ink">{a.patientName}</td>
+                  <td className="px-4 py-3 text-muted">{a.doctorName}</td>
+                  <td className="px-4 py-3 text-muted">{a.type}</td>
+                  <td className="px-4 py-3"><span className="text-[11px] font-bold uppercase text-warn">{a.status}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );

@@ -1,169 +1,137 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  LayoutDashboard, 
-  Users, 
-  Stethoscope, 
-  FileText, 
-  Calendar, 
-  Pill, 
-  CreditCard, 
-  BarChart3, 
-  Settings, 
-  LogOut,
-  Bell,
-  Search,
-  ShieldCheck
+import { useEffect, useState } from 'react';
+import {
+  LayoutDashboard, Users, Stethoscope, FileText, Pill, Calendar,
+  LogOut, Bell, UserCircle, Settings, Search, Loader2, FileCheck, CreditCard, Upload,
 } from 'lucide-react';
+import { auth, db } from './firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { signOut } from 'firebase/auth';
+import type { MhdUser } from './lib/types';
+import { t, LANG_EVENT } from './lib/i18n';
+import { LangSelect, ThemeSelect } from './components/Controls';
+import { Logo } from './PatientDashboard';
+
 import AdminHomeTab from './tabs/admin/AdminHomeTab';
 import AdminPatientsTab from './tabs/admin/AdminPatientsTab';
 import AdminDoctorsTab from './tabs/admin/AdminDoctorsTab';
 import AdminCasesTab from './tabs/admin/AdminCasesTab';
-import AdminAppointmentsTab from './tabs/admin/AdminAppointmentsTab';
 import AdminMedicinesTab from './tabs/admin/AdminMedicinesTab';
+import AdminAppointmentsTab from './tabs/admin/AdminAppointmentsTab';
 import AdminBillingTab from './tabs/admin/AdminBillingTab';
 import AdminReportsTab from './tabs/admin/AdminReportsTab';
-import AdminSettingsTab from './tabs/admin/AdminSettingsTab';
-import { auth, db } from './firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import UploadResultTab from './tabs/admin/UploadResultTab';
+import NotificationsTab from './tabs/shared/NotificationsTab';
+import SettingsTab from './tabs/shared/SettingsTab';
 
-interface AdminDashboardProps {
-  onLogout: () => void;
-}
-
-export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState('Dashboard');
-  const [adminData, setAdminData] = useState<any>(null);
+export default function AdminDashboard({ onLogout }: { onLogout: () => void }) {
+  const [me, setMe] = useState<MhdUser | null>(null);
+  const [activeTab, setActiveTab] = useState(t('hdash'));
+  const [, force] = useState(0);
 
   useEffect(() => {
-    const fetchAdminData = async () => {
-      if (auth.currentUser) {
-        const docRef = doc(db, 'users', auth.currentUser.uid);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setAdminData(docSnap.data());
-        }
-      }
-    };
-    fetchAdminData();
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    const unsub = onSnapshot(doc(db, 'users', uid), (snap) => {
+      if (snap.exists()) setMe({ id: snap.id, ...snap.data() } as MhdUser);
+    });
+    const onLang = () => force((v) => v + 1);
+    window.addEventListener(LANG_EVENT, onLang);
+    return () => { unsub(); window.removeEventListener(LANG_EVENT, onLang); };
   }, []);
 
-  const NavItem = ({ icon: Icon, label, active, onClick }: any) => (
-    <button
-      onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-[4px] mb-1 transition-all duration-200 ${
-        active 
-          ? 'bg-[#1F5F8B] text-white shadow-sm font-medium' 
-          : 'text-[#52606D] hover:bg-[#EBF1F6] hover:text-[#102A43]'
-      }`}
-    >
-      <Icon className="w-5 h-5" strokeWidth={active ? 2 : 1.5} />
-      <span className="text-[14px]">{label}</span>
-    </button>
-  );
+  const doLogout = async () => {
+    try { await signOut(auth); } catch { /* ignore */ }
+    onLogout();
+  };
 
-  const SectionHeading = ({ children }: { children: React.ReactNode }) => (
-    <h3 className="px-4 text-[10px] font-bold text-[#52606D] uppercase tracking-wider mb-2 mt-4">
-      {children}
-    </h3>
-  );
+  const NAV: [string, typeof LayoutDashboard][] = [
+    [t('hdash'), LayoutDashboard],
+    [t('hpatients'), Users],
+    [t('hdoctors'), Stethoscope],
+    [t('hcases'), FileText],
+    [t('hmeds'), Pill],
+    [t('happts'), Calendar],
+    [t('hdocs'), FileCheck],
+    [t('hupload'), Upload],
+    [t('billing'), CreditCard],
+    [t('notifs'), Bell],
+    [t('settings'), Settings],
+  ];
+
+  if (!me) {
+    return <div className="h-screen bg-app flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+  }
 
   return (
-    <div className="flex h-screen bg-[#F4F6F8] font-sans">
-      
-      {/* SIDEBAR */}
-      <aside className="w-[260px] bg-[#FFFFFF] border-r border-[#CBD5E1] flex flex-col shadow-sm shrink-0">
-        {/* Brand */}
-        <div className="h-[64px] flex items-center px-6 border-b border-[#CBD5E1] shrink-0">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-[4px] bg-[#102A43] flex items-center justify-center">
-              <ShieldCheck className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-[16px] font-bold text-[#102A43] tracking-tight leading-none">MHD Admin</h1>
-              <p className="text-[10px] text-[#52606D] font-medium tracking-wide">SYSTEM CONTROL</p>
-            </div>
+    <div className="flex h-screen bg-app font-sans text-ink">
+      <aside className="w-[260px] bg-navy flex flex-col h-full shrink-0">
+        <div className="h-[64px] flex items-center gap-3 px-6 border-b border-white/10">
+          <svg className="w-8 h-8 text-white" viewBox="0 0 32 32" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path d="M16 0L30 8V24L16 32L2 24V8L16 0ZM16 4.6L6 10.4V21.6L16 27.4L26 21.6V10.4L16 4.6Z" />
+            <rect x="12" y="12" width="8" height="8" />
+          </svg>
+          <div>
+            <h1 className="text-[16px] font-bold tracking-wide leading-none text-white">MHD HOSPITAL</h1>
+            <p className="text-[10px] text-on-navy-muted uppercase tracking-wider font-semibold mt-0.5">Hospital Admin Portal</p>
           </div>
         </div>
-
-        {/* Navigation */}
         <div className="flex-1 overflow-y-auto px-3 py-4 custom-scrollbar">
-          <SectionHeading>Workspace</SectionHeading>
-          <NavItem icon={LayoutDashboard} label="Dashboard" active={activeTab === 'Dashboard'} onClick={() => setActiveTab('Dashboard')} />
-          
-          <SectionHeading>Directory</SectionHeading>
-          <NavItem icon={Users} label="Patients" active={activeTab === 'Patients'} onClick={() => setActiveTab('Patients')} />
-          <NavItem icon={Stethoscope} label="Doctors" active={activeTab === 'Doctors'} onClick={() => setActiveTab('Doctors')} />
-          
-          <SectionHeading>Clinical</SectionHeading>
-          <NavItem icon={FileText} label="Cases" active={activeTab === 'Cases'} onClick={() => setActiveTab('Cases')} />
-          <NavItem icon={Calendar} label="Appointments" active={activeTab === 'Appointments'} onClick={() => setActiveTab('Appointments')} />
-          <NavItem icon={Pill} label="Medicines" active={activeTab === 'Medicines'} onClick={() => setActiveTab('Medicines')} />
-          
-          <SectionHeading>Operations</SectionHeading>
-          <NavItem icon={CreditCard} label="Billing" active={activeTab === 'Billing'} onClick={() => setActiveTab('Billing')} />
-          <NavItem icon={BarChart3} label="Reports" active={activeTab === 'Reports'} onClick={() => setActiveTab('Reports')} />
-          
-          <SectionHeading>System</SectionHeading>
-          <NavItem icon={Settings} label="Settings" active={activeTab === 'Settings'} onClick={() => setActiveTab('Settings')} />
+          {NAV.map(([label, Icon]) => (
+            <button
+              key={label}
+              onClick={() => setActiveTab(label)}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-[4px] text-[14px] font-medium transition-colors mb-0.5 ${
+                activeTab === label ? 'bg-primary text-white shadow-sm' : 'text-on-navy-muted hover:bg-white/5 hover:text-white'
+              }`}
+            >
+              <Icon className="w-4 h-4" strokeWidth={1.5} /> {label}
+            </button>
+          ))}
         </div>
-
-        {/* Footer Actions */}
-        <div className="p-4 border-t border-[#CBD5E1] space-y-1">
-          <NavItem icon={LogOut} label="Logout" onClick={onLogout} />
+        <div className="p-4 border-t border-white/10 space-y-1">
+          <div className="flex items-center gap-3 mb-2">
+            {me.photo ? (
+              <img src={me.photo} alt="" className="w-9 h-9 rounded-full object-cover" />
+            ) : (
+              <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center"><UserCircle className="w-5 h-5 text-white" strokeWidth={1.5} /></div>
+            )}
+            <div className="min-w-0">
+              <p className="text-[13px] font-semibold text-white truncate">{me.name}</p>
+              <p className="text-[11px] text-on-navy-muted truncate">{me.adminName}</p>
+            </div>
+          </div>
+          <button onClick={doLogout} className="w-full flex items-center gap-3 px-4 py-2.5 rounded-[4px] text-[14px] font-medium text-danger hover:bg-danger-bg hover:text-danger-d transition-colors">
+            <LogOut className="w-4 h-4" strokeWidth={1.5} /> {t('logout')}
+          </button>
         </div>
       </aside>
 
-      {/* MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Top Header */}
-        <header className="h-[64px] bg-[#FFFFFF] border-b border-[#CBD5E1] flex items-center justify-between px-8 shrink-0 shadow-sm z-10">
-          <div className="flex items-center bg-[#F4F6F8] border border-[#CBD5E1] rounded-[4px] px-3 py-1.5 w-[300px]">
-            <Search className="w-4 h-4 text-[#52606D] mr-2" strokeWidth={1.5} />
-            <input 
-              type="text" 
-              placeholder="Search patients, doctors, cases..." 
-              className="bg-transparent border-none outline-none text-[13px] text-[#172B3A] w-full placeholder:text-[#52606D]"
-            />
+        <header className="h-[64px] bg-surface border-b border-line flex items-center justify-between px-8 shrink-0">
+          <div className="relative w-[300px] hidden md:block">
+            <Search className="absolute left-3 top-2.5 w-4 h-4 text-muted" />
+            <input placeholder="Search..." className="w-full h-[36px] bg-app border border-line rounded-[4px] pl-9 pr-3 text-[13px] text-ink focus:outline-none focus:border-primary" />
           </div>
-          <div className="flex items-center gap-5">
-            <button className="relative text-[#52606D] hover:text-[#102A43] transition-colors">
+          <div className="flex items-center gap-3">
+            <LangSelect />
+            <ThemeSelect />
+            <button onClick={() => setActiveTab(t('notifs'))} title="Notifications" className="relative p-2 rounded-[4px] text-muted hover:bg-app hover:text-ink transition-colors">
               <Bell className="w-5 h-5" strokeWidth={1.5} />
-              <span className="absolute -top-1 -right-1 w-2 h-2 bg-[#B42318] rounded-full"></span>
             </button>
-            <div className="h-6 w-px bg-[#CBD5E1]"></div>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-[#102A43] flex items-center justify-center">
-                <ShieldCheck className="w-4 h-4 text-white" />
-              </div>
-              <div className="text-left hidden md:block">
-                <p className="text-[13px] font-semibold text-[#172B3A] leading-tight">
-                  {adminData?.name ? adminData.name : 'System Admin'}
-                </p>
-                <p className="text-[11px] text-[#52606D] font-mono">ID: ADMIN-01</p>
-              </div>
-            </div>
           </div>
         </header>
-
-        {/* Main View Area */}
-        <main className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-          {activeTab === 'Dashboard' && <AdminHomeTab adminData={adminData} />}
-          {activeTab === 'Patients' && <AdminPatientsTab adminData={adminData} />}
-          {activeTab === 'Doctors' && <AdminDoctorsTab adminData={adminData} />}
-          {activeTab === 'Cases' && <AdminCasesTab adminData={adminData} />}
-          {activeTab === 'Appointments' && <AdminAppointmentsTab adminData={adminData} />}
-          {activeTab === 'Medicines' && <AdminMedicinesTab adminData={adminData} />}
-          {activeTab === 'Billing' && <AdminBillingTab adminData={adminData} />}
-          {activeTab === 'Reports' && <AdminReportsTab adminData={adminData} />}
-          {activeTab === 'Settings' && <AdminSettingsTab adminData={adminData} />}
-          
-          {activeTab !== 'Dashboard' && activeTab !== 'Patients' && activeTab !== 'Doctors' && activeTab !== 'Cases' && activeTab !== 'Appointments' && activeTab !== 'Medicines' && activeTab !== 'Billing' && activeTab !== 'Reports' && activeTab !== 'Settings' && (
-            <div className="flex flex-col items-center justify-center h-full text-center p-8 animate-in fade-in duration-200 opacity-70">
-              <ShieldCheck className="w-12 h-12 text-[#CBD5E1] mb-4" strokeWidth={1} />
-              <h2 className="text-[20px] font-semibold text-[#172B3A] mb-2">{activeTab} Administration</h2>
-              <p className="text-[14px] text-[#52606D]">This administrative module is currently being configured.</p>
-            </div>
-          )}
+        <main className="flex-1 overflow-y-auto p-8 custom-scrollbar animate-in fade-in duration-200">
+          {activeTab === t('hdash') && <AdminHomeTab adminData={me} go={setActiveTab} />}
+          {activeTab === t('hpatients') && <AdminPatientsTab adminData={me} />}
+          {activeTab === t('hdoctors') && <AdminDoctorsTab adminData={me} />}
+          {activeTab === t('hcases') && <AdminCasesTab adminData={me} />}
+          {activeTab === t('hmeds') && <AdminMedicinesTab adminData={me} />}
+          {activeTab === t('happts') && <AdminAppointmentsTab adminData={me} />}
+          {activeTab === t('hdocs') && <AdminReportsTab adminData={me} />}
+          {activeTab === t('hupload') && <UploadResultTab adminData={me} />}
+          {activeTab === t('billing') && <AdminBillingTab adminData={me} />}
+          {activeTab === t('notifs') && <NotificationsTab />}
+          {activeTab === t('settings') && <SettingsTab me={me} onSaved={setMe} />}
         </main>
       </div>
     </div>

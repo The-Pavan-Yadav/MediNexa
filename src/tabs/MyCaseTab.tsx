@@ -1,182 +1,208 @@
-import React, { useState, useEffect } from 'react';
-import { db, auth } from '../firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { 
-  FileText, 
-  Stethoscope, 
-  Activity, 
-  Pill, 
-  ClipboardList, 
-  Clock, 
-  AlertCircle,
-  FileSearch,
-  CheckCircle2,
-  ChevronRight,
-  UserCircle
-} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { FileText, Loader2 } from 'lucide-react';
+import { addDoc, collection, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+import type { MhdUser, CaseDoc, Medicine } from '../lib/types';
+import { fmtDT, todayStr } from '../lib/format';
+import { notifyRole } from '../lib/fs';
+import MicButton from '../components/MicButton';
+import { toast } from '../components/Toaster';
+import { bind } from './bind';
+import { PageHeader, Loading, EmptyState, StatusChip, inputCls, labelCls, btnPrimary, FilterPills } from './common';
 
-export default function MyCaseTab({ patientData }: { patientData?: any }) {
-  const [caseData, setCaseData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+const AREAS = ['Head', 'Chest', 'Abdomen', 'Limbs & Joints', 'Skin', 'General'];
+const FIELDS: [string, string, boolean][] = [
+  ['symptoms', 'Symptoms (describe fully)', true],
+  ['duration', 'How long have you had this?', false],
+  ['prevTreatment', 'Any previous treatment for this?', true],
+  ['existing', 'Existing conditions to mention', true],
+  ['currentMeds', 'Current medications', true],
+  ['allergyNote', 'Allergies to mention', true],
+  ['surgeryNote', 'Past surgeries to mention', true],
+  ['familyHistory', 'Family history relevant here', true],
+  ['other', 'Anything else the doctor should know', true],
+];
+
+const DRAFT_KEY = (uid: string) => `mhd_draft_${uid}`;
+
+export default function MyCaseTab({ patientData }: { patientData: MhdUser }) {
+  const [cases, setCases] = useState<CaseDoc[] | null>(null);
+  const [meds, setMeds] = useState<Medicine[]>([]);
+  const [f, setF] = useState<Record<string, string>>({});
+  const [areas, setAreas] = useState<string[]>([]);
+  const [severity, setSeverity] = useState('Moderate');
+  const [busy, setBusy] = useState(false);
+  const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }));
 
   useEffect(() => {
-    if (!auth.currentUser) return;
-    setLoading(true);
+    const u1 = bind<CaseDoc>('cases', [['patientId', '==', patientData.id]], setCases);
+    const u2 = bind<Medicine>('medicines', [['patientId', '==', patientData.id]], setMeds);
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY(patientData.id));
+      if (raw) { const d = JSON.parse(raw); setF(d.fields || {}); setAreas(d.areas || []); }
+    } catch { /* ignore */ }
+    return () => { u1(); u2(); };
+  }, [patientData.id]);
 
-    const q = query(collection(db, 'cases'), where('patientId', '==', auth.currentUser.uid));
-    
-    const unsub = onSnapshot(q, (snap) => {
-      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      // Sort by date (desc)
-      data.sort((a:any, b:any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-      
-      const activeCases = data.filter((c:any) => c.status !== 'Closed');
-      if (activeCases.length > 0) {
-        setCaseData(activeCases[0]);
-      } else if (data.length > 0) {
-        setCaseData(data[0]);
-      } else {
-        setCaseData(null);
-      }
-      setLoading(false);
-    });
+  // autosave draft
+  useEffect(() => {
+    try { localStorage.setItem(DRAFT_KEY(patientData.id), JSON.stringify({ fields: f, areas, at: Date.now() })); } catch { /* ignore */ }
+  }, [f, areas, patientData.id]);
 
-    return () => unsub();
-  }, []);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!f.chiefComplaint?.trim()) { toast('Please describe your main problem.', 'err'); return; }
+    setBusy(true);
+    try {
+      await addDoc(collection(db, 'cases'), {
+        patientId: patientData.id, patientName: patientData.name, healthId: patientData.healthId || '',
+        chiefComplaint: f.chiefComplaint, symptoms: f.symptoms || '', area: areas.join(', '),
+        duration: f.duration || '', severity, prevTreatment: f.prevTreatment || '',
+        existing: f.existing || '', currentMeds: f.currentMeds || '', allergyNote: f.allergyNote || '',
+        surgeryNote: f.surgeryNote || '', familyHistory: f.familyHistory || '', other: f.other || '',
+        status: 'waiting', createdAt: Date.now(),
+      });
+      await addDoc(collection(db, 'timeline'), {
+        patientId: patientData.id, date: todayStr(), type: 'case', icon: '📋',
+        title: 'New case submitted', description: f.chiefComplaint, createdAt: Date.now(),
+      });
+      await notifyRole('doctor', '📋 New case', `${patientData.name}: ${f.chiefComplaint}`);
+      setF({}); setAreas([]); setSeverity('Moderate');
+      try { localStorage.removeItem(DRAFT_KEY(patientData.id)); } catch { /* ignore */ }
+      toast('Case submitted — a doctor will review it ✅');
+    } catch {
+      toast('Could not submit case', 'err');
+    } finally {
+      setBusy(false);
+    }
+  };
 
-  if (loading) return <div className="p-8 text-center text-[#52606D]">Loading case...</div>;
-  if (!caseData) return <div className="p-8 text-center text-[#52606D]">No active clinical cases found.</div>;
+  if (cases === null) return <div className="max-w-[1000px] mx-auto"><Loading /></div>;
+
+  const list = [...cases].sort((a, b) => b.createdAt - a.createdAt);
 
   return (
-    <div className="max-w-[1000px] mx-auto space-y-6 animate-in fade-in duration-200">
-      
-      {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+    <div className="max-w-[1000px] mx-auto space-y-6 pb-12">
+      <PageHeader title={t_c('mycase')} sub="Describe your problem — a doctor reviews it and replies here." />
+
+      {/* New case form */}
+      <form onSubmit={submit} className="bg-surface border border-line rounded-[4px] p-5 shadow-sm space-y-4">
+        <h4 className="text-[13px] font-bold text-ink uppercase tracking-wider">📋 New Case</h4>
         <div>
-          <div className="flex items-center gap-3 mb-1">
-            <h2 className="text-[22px] font-semibold text-[#102A43]">Primary Case File</h2>
-            <span className={`text-[11px] px-2.5 py-1 rounded-[4px] font-bold uppercase tracking-wider border ${
-              caseData.status === 'Closed' ? 'bg-[#F4F6F8] text-[#52606D] border-[#CBD5E1]' :
-              caseData.status === 'Waiting' ? 'bg-[#FEF6E7] text-[#975A16] border-[#F6E0B5]' :
-              'bg-[#EBF1F6] text-[#1F5F8B] border-[#90CDF4]'
-            }`}>
-              {caseData.status || 'Active'}
-            </span>
-            {caseData.priority === 'High' && (
-              <span className="bg-[#FEF2F2] text-[#B42318] border border-[#FCA5A5] text-[11px] px-2.5 py-1 rounded-[4px] font-bold uppercase tracking-wider flex items-center gap-1">
-                <AlertCircle className="w-3.5 h-3.5" /> High Priority
-              </span>
-            )}
+          <label className={labelCls}>What is your main problem? *</label>
+          <div className="flex gap-2">
+            <textarea rows={2} value={f.chiefComplaint || ''} onChange={(e) => set('chiefComplaint', e.target.value)} className={inputCls + ' h-auto py-2'} placeholder="e.g. Fever and body pain since 2 days" />
+            <MicButton onText={(t2) => set('chiefComplaint', (f.chiefComplaint || '') + ' ' + t2)} />
           </div>
-          <p className="text-[14px] text-[#52606D]">Opened on {caseData.date}</p>
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Main Clinical Details */}
-        <div className="lg:col-span-2 space-y-6">
-          
-          <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] overflow-hidden">
-            <div className="bg-[#F9FAFB] border-b border-[#CBD5E1] p-4 sm:p-5 flex items-center gap-2">
-              <FileSearch className="w-5 h-5 text-[#102A43]" strokeWidth={2} />
-              <h3 className="text-[15px] font-semibold text-[#172B3A]">Clinical Overview</h3>
+        <div className="grid sm:grid-cols-2 gap-4">
+          {FIELDS.slice(0, 2).map(([k, label, mic]) => (
+            <div key={k}>
+              <label className={labelCls}>{label}</label>
+              <div className="flex gap-2">
+                <input value={f[k] || ''} onChange={(e) => set(k, e.target.value)} className={inputCls} />
+                {mic && <MicButton onText={(t2) => set(k, (f[k] || '') + ' ' + t2)} />}
+              </div>
             </div>
-            <div className="p-4 sm:p-6 space-y-6">
-              
-              <div>
-                <h4 className="text-[11px] font-bold text-[#52606D] uppercase tracking-wider mb-2">Reported Symptoms</h4>
-                <p className="text-[14px] text-[#172B3A] leading-relaxed bg-[#F4F6F8] p-3 rounded-[4px]">
-                  {caseData.symptoms || 'No symptoms documented.'}
-                </p>
+          ))}
+        </div>
+        <div>
+          <label className={labelCls}>Where does it hurt? (select all that apply)</label>
+          <div className="flex flex-wrap gap-2">
+            {AREAS.map((a) => (
+              <button key={a} type="button" onClick={() => setAreas((p) => p.includes(a) ? p.filter((x) => x !== a) : [...p, a])}
+                className={`text-[12px] font-medium px-3 py-1.5 rounded-[4px] border transition-colors ${areas.includes(a) ? 'bg-primary text-white border-primary' : 'bg-surface border-line text-muted hover:text-ink'}`}>
+                {a}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-4">
+          {FIELDS.slice(2).map(([k, label]) => (
+            <div key={k}>
+              <label className={labelCls}>{label}</label>
+              <div className="flex gap-2">
+                <input value={f[k] || ''} onChange={(e) => set(k, e.target.value)} className={inputCls} />
+                <MicButton onText={(t2) => set(k, (f[k] || '') + ' ' + t2)} />
               </div>
-
-              <div className="border-t border-[#CBD5E1] pt-6">
-                <h4 className="text-[11px] font-bold text-[#52606D] uppercase tracking-wider mb-2">Physician Assessment</h4>
-                <div className="bg-[#EBF1F6] border border-[#90CDF4] rounded-[4px] p-4 text-[#102A43]">
-                  <p className="text-[14px] font-bold mb-1">Working Diagnosis:</p>
-                  <p className="text-[15px] leading-relaxed mb-3">
-                    {caseData.diagnosis || 'Diagnosis pending clinical review.'}
-                  </p>
-                  
-                  <p className="text-[12px] font-bold mt-4 mb-1 uppercase tracking-wider opacity-80">Clinical Notes</p>
-                  <p className="text-[13px] leading-relaxed opacity-90">
-                    {caseData.notes || 'No additional clinical notes provided.'}
-                  </p>
-                </div>
-              </div>
+            </div>
+          ))}
+          <div>
+            <label className={labelCls}>Severity</label>
+            <div className="flex gap-2">
+              {['Mild', 'Moderate', 'Severe'].map((s) => (
+                <button key={s} type="button" onClick={() => setSeverity(s)}
+                  className={`flex-1 text-[12px] font-medium px-3 py-2 rounded-[4px] border transition-colors ${severity === s ? 'bg-primary text-white border-primary' : 'bg-surface border-line text-muted'}`}>
+                  {s === 'Mild' ? '🙂 Mild' : s === 'Moderate' ? '😐 Moderate' : '😣 Severe'}
+                </button>
+              ))}
             </div>
           </div>
+        </div>
+        <button type="submit" disabled={busy} className={btnPrimary + ' flex items-center gap-2 disabled:opacity-70'}>
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : '📋'} Submit Case for Review
+        </button>
+      </form>
 
-          <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] overflow-hidden">
-            <div className="bg-[#F9FAFB] border-b border-[#CBD5E1] p-4 sm:p-5 flex items-center gap-2">
-              <ClipboardList className="w-5 h-5 text-[#102A43]" strokeWidth={2} />
-              <h3 className="text-[15px] font-semibold text-[#172B3A]">Care & Treatment Plan</h3>
-            </div>
-            <div className="p-4 sm:p-6 space-y-6">
-              
-              <div>
-                <h4 className="text-[11px] font-bold text-[#52606D] uppercase tracking-wider mb-2">Action Items</h4>
-                {caseData.treatment ? (
-                  <div className="flex items-start gap-3">
-                    <CheckCircle2 className="w-5 h-5 text-[#276749] mt-0.5 shrink-0" />
-                    <p className="text-[14px] text-[#172B3A] leading-relaxed">{caseData.treatment}</p>
+      {/* My cases */}
+      <div>
+        <h4 className="text-[11px] font-semibold text-muted uppercase tracking-wider mb-3">All My Cases ({list.length})</h4>
+        {list.length === 0 ? (
+          <EmptyState icon={<FileText className="w-8 h-8 text-ghost mx-auto" strokeWidth={1.5} />} title="No cases yet" sub="Submit your first case above to start your medical journey." />
+        ) : (
+          <div className="space-y-3">
+            {list.map((c) => (
+              <div key={c.id} className="bg-surface border border-line rounded-[4px] p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[14px] font-semibold text-ink">{c.chiefComplaint}</p>
+                    <p className="text-[12px] text-muted mt-1">{fmtDT(c.createdAt)}{c.area ? ` · ${c.area}` : ''}{c.duration ? ` · ${c.duration}` : ''}</p>
                   </div>
-                ) : (
-                  <p className="text-[13px] text-[#52606D]">Treatment plan not yet established.</p>
+                  <StatusChip ok={c.status === 'reviewed'} warn={c.status === 'waiting'}>
+                    {c.status === 'reviewed' ? '🟩 Reviewed' : '🟡 Waiting'}
+                  </StatusChip>
+                </div>
+                {c.status === 'reviewed' && (
+                  <div className="mt-3 pt-3 border-t border-line space-y-2 text-[13px]">
+                    <p className="text-muted"><b className="text-ink">{c.doctorName}</b> reviewed · {fmtDT(c.reviewedAt)} · {c.fee ? `Fee ₹${c.fee}` : ''}</p>
+                    {c.doctorNotes && <p><b className="text-muted">Notes:</b> {c.doctorNotes}</p>}
+                    {c.observations && <p><b className="text-muted">Observations:</b> {c.observations}</p>}
+                    {c.prescriptionText && <p><b className="text-muted">Prescription:</b> <span className="whitespace-pre-line">{c.prescriptionText}</span></p>}
+                    {c.tests && <p><b className="text-muted">Tests:</b> {c.tests}</p>}
+                    {c.followupDays && <p><b className="text-muted">Follow-up:</b> in {c.followupDays} days</p>}
+                  </div>
                 )}
               </div>
-
-              {caseData.medicines && (
-                <div className="border-t border-[#CBD5E1] pt-6">
-                  <h4 className="text-[11px] font-bold text-[#52606D] uppercase tracking-wider mb-2">Prescribed Medications</h4>
-                  <div className="flex items-start gap-3 bg-[#FEF2F2] border border-[#FCA5A5] p-3 rounded-[4px]">
-                    <Pill className="w-5 h-5 text-[#B42318] mt-0.5 shrink-0" />
-                    <p className="text-[14px] text-[#172B3A] leading-relaxed">{caseData.medicines}</p>
-                  </div>
-                </div>
-              )}
-
-              {caseData.testRequests && (
-                <div className="border-t border-[#CBD5E1] pt-6">
-                  <h4 className="text-[11px] font-bold text-[#52606D] uppercase tracking-wider mb-2">Requested Diagnostics</h4>
-                  <p className="text-[14px] text-[#172B3A] leading-relaxed bg-[#F4F6F8] p-3 rounded-[4px]">
-                    {caseData.testRequests}
-                  </p>
-                </div>
-              )}
-
-            </div>
+            ))}
           </div>
+        )}
+      </div>
 
-        </div>
-
-        {/* Sidebar */}
-        <div className="space-y-6">
-          <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-5">
-            <h4 className="text-[11px] font-bold text-[#52606D] uppercase tracking-wider mb-4">Assigned Care Team</h4>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#F4F6F8] border border-[#CBD5E1] flex items-center justify-center shrink-0">
-                <Stethoscope className="w-5 h-5 text-[#1F5F8B]" />
-              </div>
-              <div>
-                <p className="text-[14px] font-bold text-[#172B3A]">{caseData.assignedDoctorName || 'Not Assigned'}</p>
-                <p className="text-[12px] text-[#52606D]">Primary Physician</p>
-              </div>
-            </div>
-          </div>
-          
-          {caseData.followUpDate && (
-             <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-[4px] p-5">
-              <h4 className="text-[11px] font-bold text-[#52606D] uppercase tracking-wider mb-4">Follow-up</h4>
-              <div className="flex items-center gap-3 bg-[#FEF6E7] border border-[#F6E0B5] p-3 rounded-[4px]">
-                <Clock className="w-5 h-5 text-[#975A16]" />
-                <p className="text-[13px] font-bold text-[#975A16]">{caseData.followUpDate}</p>
-              </div>
-            </div>
-          )}
-        </div>
+      {/* Patient-reported profile cards */}
+      <div className="grid lg:grid-cols-3 gap-4">
+        <ProfileCard title="👤 Personal" rows={[['DOB', patientData.dob], ['Gender', patientData.gender], ['Blood', patientData.bloodGroup], ['Phone', patientData.phone], ['Address', patientData.address]]} />
+        <ProfileCard title="🏥 Medical" rows={[['Conditions', patientData.conditions], ['Allergies', patientData.allergies], ['Family history', patientData.familyHistory]]} />
+        <ProfileCard title="🔪 Surgeries & Accidents" rows={[['Surgeries', patientData.surgeries], ['Accidents', patientData.accidents]]} />
+        <ProfileCard title="💊 Medications" rows={meds.filter((m) => m.active !== false).slice(0, 6).map((m) => [m.name, m.dosage])} />
+        <ProfileCard title="🆔 Identity" rows={[['Health ID', patientData.healthId], ['Emergency', patientData.emergencyName ? `${patientData.emergencyName} · ${patientData.emergencyPhone}` : ''], ['Height', patientData.heightCm ? `${patientData.heightCm} cm` : ''], ['Weight', patientData.weightKg ? `${patientData.weightKg} kg` : '']]} />
       </div>
     </div>
   );
 }
+
+function ProfileCard({ title, rows }: { title: string; rows: [string, string | undefined][] }) {
+  const filled = rows.filter(([, v]) => v);
+  if (filled.length === 0) return null;
+  return (
+    <div className="bg-surface border border-line rounded-[4px] p-4 shadow-sm">
+      <h5 className="text-[12px] font-bold text-heading mb-2">{title}</h5>
+      {filled.map(([k, v]) => (
+        <p key={k} className="text-[12px] py-1 border-b border-line last:border-0"><b className="text-muted font-medium">{k}:</b> <span className="text-ink whitespace-pre-line">{v}</span></p>
+      ))}
+    </div>
+  );
+}
+
+// i18n nav key
+import { t } from '../lib/i18n';
+const t_c = (k: string) => t(k);
