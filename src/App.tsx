@@ -224,48 +224,48 @@ export default function App() {
   return (
     <div className="min-h-screen lg:h-screen lg:overflow-hidden w-full flex flex-col lg:flex-row font-sans text-ink bg-app box-border">
       {/* LEFT PANEL - BRANDING */}
-      <div className="lg:w-[42%] bg-navy text-white flex flex-col justify-between p-10">
+      <div className="lg:w-[40%] bg-navy text-white flex flex-col justify-between p-8 lg:p-10 shrink-0">
         <div>
-          <div className="flex items-center gap-4 mb-8">
+          <div className="flex items-center gap-4 mb-6 lg:mb-8">
             <Logo className="w-10 h-10 text-white" />
             <div>
-              <h1 className="text-[24px] font-bold tracking-wide leading-none mb-1">MHD HOSPITAL</h1>
+              <h1 className="text-[22px] lg:text-[24px] font-bold tracking-wide leading-none mb-1">MHD HOSPITAL</h1>
               <p className="text-[10px] text-on-navy-muted uppercase tracking-wider font-semibold">
                 My Health Defense Hospital 24×7
               </p>
             </div>
           </div>
 
-          <div className="mb-10">
-            <h2 className="text-[28px] lg:text-[32px] font-light leading-tight mb-8">
+          <div className="mb-6 lg:mb-10">
+            <h2 className="text-[26px] lg:text-[32px] font-light leading-tight mb-6 lg:mb-8">
               One Patient.<br />One Medical Journey.
             </h2>
 
             <div className="space-y-3">
               <div className="flex items-center gap-4">
                 <ShieldCheck className="w-5 h-5 text-on-navy-muted" strokeWidth={1.5} />
-                <span className="text-[15px] font-medium text-white">24×7 Healthcare Access</span>
+                <span className="text-[14px] lg:text-[15px] font-medium text-white">24×7 Healthcare Access</span>
               </div>
               <div className="flex items-center gap-4">
                 <ShieldCheck className="w-5 h-5 text-on-navy-muted" strokeWidth={1.5} />
-                <span className="text-[15px] font-medium text-white">Secure Health Records</span>
+                <span className="text-[14px] lg:text-[15px] font-medium text-white">Secure Health Records</span>
               </div>
               <div className="flex items-center gap-4">
                 <ShieldCheck className="w-5 h-5 text-on-navy-muted" strokeWidth={1.5} />
-                <span className="text-[15px] font-medium text-white">MHD Integrated Care</span>
+                <span className="text-[14px] lg:text-[15px] font-medium text-white">MHD Integrated Care</span>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="mt-8">
+        <div className="mt-6 lg:mt-8">
           <p className="text-[12px] text-on-navy-muted mb-1 opacity-80">One Patient. One Medical Journey.</p>
           <p className="text-[12px] font-semibold text-white">IN COLLABORATION WITH UNITED NATIONS SUSTAINABLE DEVELOPMENT</p>
         </div>
       </div>
 
       {/* RIGHT PANEL - AUTHENTICATION */}
-      <div className="lg:w-[58%] flex flex-col h-full lg:overflow-y-auto">
+      <div className="lg:w-[60%] flex flex-col h-full lg:overflow-y-auto bg-app">
         {/* Header */}
         <header className="flex justify-end items-center p-6 lg:pb-4 gap-3">
           <LangSelect />
@@ -273,58 +273,60 @@ export default function App() {
         </header>
 
         <main className="flex-1 flex flex-col justify-center items-center p-6 lg:pt-0 lg:pb-8">
-          <div className="w-full max-w-[640px]">
+          <div className="w-full max-w-[700px]">
             {portal === null ? (
               <>
-                <div className="mb-5">
-                  <h2 className="text-[24px] md:text-[28px] font-semibold text-ink mb-1">
+                <div className="mb-6">
+                  <h2 className="text-[26px] md:text-[30px] font-bold text-ink mb-1.5 tracking-tight">
                     Welcome to MHD Hospital
                   </h2>
-                  <p className="text-[14px] text-muted">Secure access to your healthcare services.</p>
+                  <p className="text-[14px] text-muted">Select a portal to access your healthcare services securely.</p>
                 </div>
                 <div className="space-y-3">
                   {(Object.keys(portalCopy) as PortalType[]).map((p) => (
-                    <div key={p} className="bg-surface border border-line rounded-[4px] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-5 transition-colors hover:border-primary-d">
-                      <div className="flex items-start sm:items-center gap-4 flex-1">
-                        {portalCopy[p].icon}
+                    <div key={p} className="bg-surface border border-line rounded-[8px] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors hover:border-primary group">
+                      <div className="flex items-center gap-4 flex-1">
+                        <div className="w-11 h-11 rounded-full bg-app flex items-center justify-center shrink-0 border border-line group-hover:bg-primary/5 transition-colors">
+                           {portalCopy[p].icon}
+                        </div>
                         <div>
-                          <h3 className="text-[15px] font-semibold text-ink mb-1">{portalCopy[p].title}</h3>
-                          <p className="text-[13px] text-muted leading-relaxed pr-2">{portalCopy[p].desc}</p>
+                          <h3 className="text-[14px] font-bold text-ink mb-0.5">{portalCopy[p].title}</h3>
+                          <p className="text-[12px] text-muted leading-relaxed pr-2">{portalCopy[p].desc}</p>
                         </div>
                       </div>
-                      <div className="flex flex-col gap-2 shrink-0 w-full sm:w-[160px]">
-                        <button onClick={() => selectPortal(p, false)} className="h-[40px] px-4 bg-primary text-on-navy rounded-[6px] text-[13px] font-medium transition-colors hover:bg-primary-d w-full">
-                          Sign in as {p === 'hospital' ? 'Hospital Admin' : p}
+                      <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+                        <button onClick={() => selectPortal(p, false)} className="h-[36px] px-5 bg-primary text-on-navy rounded-[6px] text-[12px] font-semibold transition-colors hover:bg-primary-d flex-1 sm:flex-none shadow-sm">
+                          Sign In
                         </button>
-                        <button onClick={() => selectPortal(p, true)} className="h-[40px] px-4 bg-surface border border-line text-ink rounded-[6px] text-[13px] font-medium transition-colors hover:bg-app w-full">
-                          Create new account
+                        <button onClick={() => selectPortal(p, true)} className="h-[36px] px-5 bg-app border border-line text-ink rounded-[6px] text-[12px] font-medium transition-colors hover:bg-surface flex-1 sm:flex-none shadow-sm">
+                          Register
                         </button>
                       </div>
                     </div>
                   ))}
                 </div>
 
-                {/* Demo accounts (created automatically on first use, as in the original) */}
-                <div className="mt-6 pt-4 border-t border-line">
-                  <p className="text-[11px] font-semibold text-muted uppercase tracking-wider mb-2">
-                    → Demo accounts
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={() => quickDemo('patient')} disabled={authLoading} className="h-[32px] px-3 bg-transparent border border-line text-muted text-[12px] font-medium rounded-[4px] hover:bg-surface hover:text-ink transition-colors disabled:opacity-60">
-                      Patient Demo
+                {/* Demo accounts */}
+                <div className="mt-5 pt-4 border-t border-line flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold text-muted uppercase tracking-wider">
+                      Demo:
+                    </span>
+                    <button type="button" onClick={() => quickDemo('patient')} disabled={authLoading} className="h-[28px] px-3 bg-app border border-line text-muted text-[11px] font-medium rounded-[4px] hover:bg-surface hover:text-ink transition-colors disabled:opacity-60">
+                      Patient
                     </button>
-                    <button type="button" onClick={() => quickDemo('doctor')} disabled={authLoading} className="h-[32px] px-3 bg-transparent border border-line text-muted text-[12px] font-medium rounded-[4px] hover:bg-surface hover:text-ink transition-colors disabled:opacity-60">
-                      Doctor Demo
+                    <button type="button" onClick={() => quickDemo('doctor')} disabled={authLoading} className="h-[28px] px-3 bg-app border border-line text-muted text-[11px] font-medium rounded-[4px] hover:bg-surface hover:text-ink transition-colors disabled:opacity-60">
+                      Doctor
                     </button>
-                    <button type="button" onClick={() => quickDemo('hospital')} disabled={authLoading} className="h-[32px] px-3 bg-transparent border border-line text-muted text-[12px] font-medium rounded-[4px] hover:bg-surface hover:text-ink transition-colors disabled:opacity-60">
-                      Hospital Demo
+                    <button type="button" onClick={() => quickDemo('hospital')} disabled={authLoading} className="h-[28px] px-3 bg-app border border-line text-muted text-[11px] font-medium rounded-[4px] hover:bg-surface hover:text-ink transition-colors disabled:opacity-60">
+                      Hospital
                     </button>
                   </div>
-                  <p className="text-[11px] text-muted mt-2">Quick demo accounts — created automatically on first use. Password: demo123</p>
+                  <p className="text-[11px] text-muted">Pass: demo123</p>
                 </div>
               </>
             ) : (
-              <div>
+              <div className="max-w-[480px] mx-auto w-full">
                 <button
                   onClick={() => selectPortal(null, false)}
                   className="flex items-center text-[13px] font-medium text-muted hover:text-ink mb-4 transition-colors"
