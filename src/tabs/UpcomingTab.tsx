@@ -23,7 +23,7 @@ export default function UpcomingTab({ patientData }: { patientData: MhdUser }) {
 
   const today = todayStr();
   const upcoming = appts
-    .filter((a) => a.status === 'upcoming' && a.date >= today)
+    .filter((a) => (a.status === 'upcoming' || a.status === 'confirmed') && a.date >= today)
     .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
   const followups = timeline
     .filter((e) => e.type === 'followup' && e.due && e.due >= today)

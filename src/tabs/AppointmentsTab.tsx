@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Calendar, Loader2, Lock } from 'lucide-react';
-import { addDoc, collection, deleteDoc, doc, getDocs, query, where, updateDoc } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, getDocs, query, where, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { MhdUser, Appointment } from '../lib/types';
 import { fmtD, todayStr, SLOT_TIMES, slotKey, queueNumberOf } from '../lib/format';
@@ -19,6 +19,7 @@ export default function AppointmentsTab({ patientData }: { patientData: MhdUser 
   const [tab, setTab] = useState('Upcoming');
   const [f, setF] = useState({ doctorId: '', date: todayStr(), type: TYPES[0], reason: '' });
   const [busy, setBusy] = useState(false);
+  const [bookedSlots, setBookedSlots] = useState<string[]>([]);
 
   useEffect(() => {
     const u1 = bind<Appointment>('appointments', [['patientId', '==', patientData.id]], setAppts);
@@ -27,6 +28,21 @@ export default function AppointmentsTab({ patientData }: { patientData: MhdUser 
       .catch(() => { /* ignore */ });
     return u1;
   }, [patientData.id]);
+
+  useEffect(() => {
+    if (!f.doctorId || !f.date) {
+      setBookedSlots([]);
+      return;
+    }
+    const unsub = onSnapshot(query(collection(db, 'appointments'), where('doctorId', '==', f.doctorId), where('date', '==', f.date)), (s) => {
+      const times = s.docs
+        .map(d => d.data() as Appointment)
+        .filter(a => a.status === 'upcoming' || a.status === 'confirmed')
+        .map(a => a.time);
+      setBookedSlots(times);
+    });
+    return unsub;
+  }, [f.doctorId, f.date]);
 
   const doctor = doctors.find((d) => d.id === f.doctorId);
 
@@ -54,8 +70,13 @@ export default function AppointmentsTab({ patientData }: { patientData: MhdUser 
 
   // small helper so the setDoc lock failure propagates
   const setDocDoc = async (key: string) => {
-    const { setDoc } = await import('firebase/firestore');
-    await setDoc(doc(db, 'slots', key), { doctorId: doctor!.id, date: f.date, patientId: patientData.id, createdAt: Date.now() });
+    const { runTransaction } = await import('firebase/firestore');
+    await runTransaction(db, async (t) => {
+      const slotRef = doc(db, 'slots', key);
+      const slotDoc = await t.get(slotRef);
+      if (slotDoc.exists()) throw new Error('Slot already booked');
+      t.set(slotRef, { doctorId: doctor!.id, date: f.date, patientId: patientData.id, createdAt: Date.now() });
+    });
   };
 
   const cancel = async (a: Appointment) => {
@@ -72,7 +93,6 @@ export default function AppointmentsTab({ patientData }: { patientData: MhdUser 
 
   const list = [...appts].sort((a, b) => b.createdAt - a.createdAt)
     .filter((a) => tab === 'All' || a.status === tab.toLowerCase());
-  const booked = appts.filter((a) => a.doctorId === f.doctorId && a.date === f.date && a.status === 'upcoming').map((a) => a.time);
 
   return (
     <div className="max-w-[1000px] mx-auto space-y-6 pb-12">
@@ -103,7 +123,7 @@ export default function AppointmentsTab({ patientData }: { patientData: MhdUser 
             <label className={labelCls}>Available slots — {fmtD(f.date)}</label>
             <div className="flex flex-wrap gap-2">
               {SLOT_TIMES.map((tm) => {
-                const isBooked = booked.includes(tm);
+                const isBooked = bookedSlots.includes(tm);
                 return (
                   <button key={tm} disabled={isBooked || busy}
                     onClick={() => book(tm)}
@@ -118,7 +138,7 @@ export default function AppointmentsTab({ patientData }: { patientData: MhdUser 
         )}
       </div>
 
-      <FilterPills filters={['Upcoming', 'Completed', 'Cancelled']} value={tab} onChange={setTab} />
+      <FilterPills filters={['Upcoming', 'Confirmed', 'Completed', 'Cancelled', 'Rejected']} value={tab} onChange={setTab} />
 
       {list.length === 0 ? (
         <EmptyState icon={<Calendar className="w-8 h-8 text-ghost mx-auto" strokeWidth={1.5} />} title={`No ${tab.toLowerCase()} appointments`} sub="Book one above." />
@@ -133,8 +153,8 @@ export default function AppointmentsTab({ patientData }: { patientData: MhdUser 
                 </div>
                 <div className="flex items-center gap-2">
                   {a.status === 'upcoming' && <span className="text-[11px] font-bold text-primary border border-primary rounded-[4px] px-2 py-0.5">🎟️ #{queueNumberOf(appts, a)}</span>}
-                  <StatusChip ok={a.status === 'completed'} warn={a.status === 'upcoming'} danger={a.status === 'cancelled'}>{a.status}</StatusChip>
-                  {a.status === 'upcoming' && (
+                  <StatusChip ok={a.status === 'completed' || a.status === 'confirmed'} warn={a.status === 'upcoming'} danger={a.status === 'cancelled' || a.status === 'rejected'}>{a.status}</StatusChip>
+                  {(a.status === 'upcoming' || a.status === 'confirmed') && (
                     <button onClick={() => cancel(a)} className="text-[12px] font-medium text-danger border border-danger-bd px-3 py-1.5 rounded-[4px] hover:bg-danger-bg transition-colors">Cancel</button>
                   )}
                 </div>

@@ -27,7 +27,7 @@ export default function DoctorHomeTab({ doctorData, go }: { doctorData: MhdUser;
   if (loading || appts === null) return <div className="max-w-[1200px] mx-auto"><div className="bg-surface border border-line rounded-[4px] p-10 text-center"><Loader2 className="w-6 h-6 animate-spin text-muted mx-auto" /></div></div>;
 
   const today = todayStr();
-  const todays = appts.filter((a) => a.date === today && a.status === 'upcoming').sort((a, b) => a.time.localeCompare(b.time));
+  const todays = appts.filter((a) => a.date === today && (a.status === 'upcoming' || a.status === 'confirmed')).sort((a, b) => a.time.localeCompare(b.time));
   const stats: [string, number, typeof FileText, string][] = [
     ['Waiting cases', cases.length, FileText, t('cases')],
     ['Today\u2019s patients', todays.length, CalendarCheck, t('dappts')],

@@ -49,7 +49,7 @@ export default function DashboardTab({ me, go }: { me: MhdUser; go: (tab: string
   }
 
   const today = todayStr();
-  const upcoming = appts.filter((a) => a.status === 'upcoming' && a.date >= today)
+  const upcoming = appts.filter((a) => (a.status === 'upcoming' || a.status === 'confirmed') && a.date >= today)
     .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
   const nextAppt = upcoming[0];
   const activeMeds = meds.filter((m) => m.active !== false);

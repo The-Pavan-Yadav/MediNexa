@@ -18,7 +18,7 @@ export default function AdminAppointmentsTab({ }: { adminData: MhdUser }) {
 
   const counts = {
     total: appts.length,
-    upcoming: appts.filter((a) => a.status === 'upcoming').length,
+    upcoming: appts.filter((a) => a.status === 'upcoming' || a.status === 'confirmed').length,
     completed: appts.filter((a) => a.status === 'completed').length,
     cancelled: appts.filter((a) => a.status === 'cancelled').length,
   };
@@ -63,7 +63,7 @@ export default function AdminAppointmentsTab({ }: { adminData: MhdUser }) {
                         <p className="font-medium text-ink">{a.time} · {a.patientName} <span className="text-muted font-normal">→ {a.doctorName}</span></p>
                         <p className="text-[12px] text-muted">{a.type}{a.reason ? ` · ${a.reason}` : ''}</p>
                       </div>
-                      <StatusChip ok={a.status === 'completed'} warn={a.status === 'upcoming'} danger={a.status === 'cancelled'}>{a.status}</StatusChip>
+                      <StatusChip ok={a.status === 'completed' || a.status === 'confirmed'} warn={a.status === 'upcoming'} danger={a.status === 'cancelled' || a.status === 'rejected'}>{a.status}</StatusChip>
                     </div>
                   ))}
                 </div>

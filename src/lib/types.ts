@@ -60,7 +60,7 @@ export interface Medicine {
   [key: string]: unknown;
 }
 
-export type ApptStatus = 'upcoming' | 'completed' | 'cancelled';
+export type ApptStatus = 'upcoming' | 'confirmed' | 'rejected' | 'completed' | 'cancelled';
 
 export interface Appointment {
   id: string;

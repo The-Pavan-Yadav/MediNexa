@@ -5,15 +5,19 @@
   "description": "MHD Hospital — My Health Defense Hospital 24×7. React + TypeScript portal (patient / doctor / hospital admin).",
   "type": "module",
   "scripts": {
-    "dev": "vite --port=3000 --host",
-    "build": "vite build",
+    "dev": "tsx server.ts",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "start": "node dist/server.cjs",
     "preview": "vite preview",
     "lint": "tsc --noEmit"
   },
   "license": "MIT",
   "dependencies": {
+    "@google/genai": "^2.22.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
     "firebase": "^12.19.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.546.0",
@@ -22,11 +26,14 @@
     "react-dom": "^19.0.1"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/leaflet": "^1.9.20",
     "@types/node": "^22.14.0",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.1",
+    "esbuild": "^0.28.2",
     "tailwindcss": "^4.1.14",
+    "tsx": "^4.23.13",
     "typescript": "~5.8.2",
     "vite": "^6.2.3"
   }

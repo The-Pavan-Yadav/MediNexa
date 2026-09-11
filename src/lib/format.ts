@@ -85,7 +85,7 @@ export function queueNumberOf(
   appt: { doctorId: string; date: string; time: string; id: string },
 ): number {
   const same = appts
-    .filter((a) => a.doctorId === appt.doctorId && a.date === appt.date && a.status === 'upcoming')
+    .filter((a) => a.doctorId === appt.doctorId && a.date === appt.date && (a.status === 'upcoming' || a.status === 'confirmed'))
     .sort((a, b) => timeToMin(a.time) - timeToMin(b.time));
   const idx = same.findIndex((a) => a.id === appt.id);
   return idx >= 0 ? idx + 1 : 0;

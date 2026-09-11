@@ -12,6 +12,7 @@ import { doc, setDoc, getDoc } from 'firebase/firestore';
 import PatientDashboard from './PatientDashboard';
 import DoctorDashboard from './DoctorDashboard';
 import AdminDashboard from './AdminDashboard';
+import MHDAssistant from './components/MHDAssistant';
 import MicButton from './components/MicButton';
 import { LangSelect, ThemeSelect } from './components/Controls';
 import { toast } from './components/Toaster';
@@ -201,9 +202,17 @@ export default function App() {
   };
 
   if (loggedIn) {
-    if (loggedIn === 'patient') return <PatientDashboard onLogout={() => setLoggedIn(null)} />;
-    if (loggedIn === 'doctor') return <DoctorDashboard onLogout={() => setLoggedIn(null)} />;
-    return <AdminDashboard onLogout={() => setLoggedIn(null)} />;
+    let DashboardComponent;
+    if (loggedIn === 'patient') DashboardComponent = <PatientDashboard onLogout={() => setLoggedIn(null)} />;
+    else if (loggedIn === 'doctor') DashboardComponent = <DoctorDashboard onLogout={() => setLoggedIn(null)} />;
+    else DashboardComponent = <AdminDashboard onLogout={() => setLoggedIn(null)} />;
+    
+    return (
+      <>
+        {DashboardComponent}
+        <MHDAssistant role={loggedIn} patientId={auth.currentUser?.uid} />
+      </>
+    );
   }
 
   const portalCopy: Record<PortalType, { icon: React.ReactNode; title: string; desc: string }> = {

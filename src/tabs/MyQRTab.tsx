@@ -14,7 +14,7 @@ export default function MyQRTab({ patientData }: { patientData: MhdUser }) {
 
   const today = todayStr();
   const nextAppt = appts
-    .filter((a) => a.status === 'upcoming' && a.date >= today)
+    .filter((a) => (a.status === 'upcoming' || a.status === 'confirmed') && a.date >= today)
     .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))[0];
 
   const payload = JSON.stringify({
